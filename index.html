@@ -34,6 +34,11 @@
             image-rendering: pixelated;
             image-rendering: -webkit-crisp-edges;
             image-rendering: -moz-crisp-edges;
+            object-fit: contain;
+        }
+        .low-quality {
+            width: 500px;
+            height: 500px;
         }
         .hidden {
             display: none;
@@ -70,6 +75,8 @@
 
     <script>
         const TILE_SIZE = 2000;
+        const LOW_QUALITY_SIZE = 500;
+        const ZOOM_THRESHOLD = 0.5;
         const imagePath = 'kafelki/';
         const centralTiles = ['0,0', '0,-0', '-0,0', '-0,-0'];
 
@@ -92,6 +99,16 @@
                 clearTimeout(timeout);
                 timeout = setTimeout(() => func.apply(this, args), wait);
             };
+        }
+
+        // Sprawdzanie istnienia obrazu
+        async function checkImageExists(url) {
+            try {
+                const response = await fetch(url, { method: 'HEAD' });
+                return response.ok;
+            } catch {
+                return false;
+            }
         }
 
         class TileMap {
@@ -187,9 +204,10 @@
                 const minY = Math.floor((-this.posY / this.zoom - viewHeight / 2) / TILE_SIZE) - 1;
                 const maxY = Math.ceil((-this.posY / this.zoom + viewHeight / 2) / TILE_SIZE) + 1;
 
-                // Zwiększ zakres do ±3
+                // Dynamiczny zakres w zależności od zoomu
+                const range = Math.max(3, Math.ceil(5 / this.zoom)); // Większy zakres przy mniejszym zoomie
                 const coordValues = [];
-                for (let i = Math.max(minX, -3); i <= Math.min(maxX, 3); i++) {
+                for (let i = Math.max(minX, -range); i <= Math.min(maxX, range); i++) {
                     if (i === 0) {
                         coordValues.push('0', '-0');
                     } else if (i === -1) {
@@ -204,6 +222,8 @@
                         coordValues.push('-3');
                     } else if (i === 3) {
                         coordValues.push('3');
+                    } else {
+                        coordValues.push(i.toString());
                     }
                 }
                 // Sortuj, aby centralne kafelki były pierwsze
@@ -216,28 +236,33 @@
                     });
             }
 
-            loadTile({ x, y, delay }) {
+            async loadTile({ x, y, delay }) {
                 const key = getTileKey(x, y);
                 if (this.tiles.has(key)) return; // Kafelek już istnieje
+
+                const isCentral = centralTiles.includes(key);
+                let imageUrl = isCentral ? `${imagePath}${key}.png` : `${imagePath}${key}.webp`;
+
+                // Sprawdź istnienie obrazu
+                if (isCentral && !(await checkImageExists(imageUrl))) {
+                    imageUrl = `${imagePath}${key}.webp`; // Fallback na WebP
+                    if (!(await checkImageExists(imageUrl))) {
+                        return; // Obraz nie istnieje
+                    }
+                } else if (!isCentral && !(await checkImageExists(imageUrl))) {
+                    return; // Obraz WebP nie istnieje
+                }
 
                 setTimeout(() => {
                     const tile = document.createElement('img');
                     tile.className = 'tile';
-                    const isCentral = centralTiles.includes(key);
-                    const imageUrl = isCentral ? `${imagePath}${key}.png` : `${imagePath}${key}.webp`;
+                    if (this.zoom < ZOOM_THRESHOLD) {
+                        tile.classList.add('low-quality');
+                    }
                     tile.src = imageUrl;
                     tile.onerror = () => {
-                        if (isCentral) {
-                            // Spróbuj WebP dla centralnych
-                            tile.src = `${imagePath}${key}.webp`;
-                            tile.onerror = () => {
-                                tile.classList.add('hidden');
-                                this.tiles.delete(key);
-                            };
-                        } else {
-                            tile.classList.add('hidden');
-                            this.tiles.delete(key);
-                        }
+                        tile.classList.add('hidden');
+                        this.tiles.delete(key);
                     };
                     tile.onload = () => {
                         tile.classList.remove('hidden');
@@ -269,6 +294,15 @@
                 const visibleTiles = this.getVisibleTiles();
                 const currentKeys = new Set();
 
+                // Aktualizuj jakość istniejących kafelków
+                this.tiles.forEach((tile, key) => {
+                    if (this.zoom < ZOOM_THRESHOLD) {
+                        tile.classList.add('low-quality');
+                    } else {
+                        tile.classList.remove('low-quality');
+                    }
+                });
+
                 // Dodaj widoczne kafelki do kolejki
                 this.loadQueue = [];
                 visibleTiles.forEach(({ x, y }, index) => {
@@ -282,7 +316,7 @@
                 // Przetwarzaj kolejkę
                 this.processLoadQueue();
 
-                // Ukryj niewidoczne kafelki zamiast usuwać
+                // Ukryj niewidoczne kafelki
                 this.tiles.forEach((tile, key) => {
                     if (!currentKeys.has(key)) {
                         tile.classList.add('hidden');
