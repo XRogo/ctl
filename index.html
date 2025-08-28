@@ -31,6 +31,9 @@
             position: absolute;
             width: 2000px;
             height: 2000px;
+            image-rendering: pixelated; /* Ostre piksele przy zoomie */
+            image-rendering: -webkit-crisp-edges; /* Dla starszych przeglądarek */
+            image-rendering: -moz-crisp-edges; /* Dla Firefoksa */
         }
         #zoom-controls {
             position: absolute;
@@ -169,7 +172,7 @@
                 const minY = Math.floor((-this.posY / this.zoom - viewHeight / 2) / TILE_SIZE) - 1;
                 const maxY = Math.ceil((-this.posY / this.zoom + viewHeight / 2) / TILE_SIZE) + 1;
 
-                // Ogranicz zakres do ±1, aby mniej błędów
+                // Ogranicz zakres do ±1
                 const coordValues = [];
                 for (let i = Math.max(minX, -1); i <= Math.min(maxX, 1); i++) {
                     if (i === 0) {
@@ -201,7 +204,7 @@
                             // Obraz załadowany - zostaw
                         };
                         tile.onerror = () => {
-                            // Obraz nie istnieje - usuń element, aby nie zajmował miejsca
+                            // Obraz nie istnieje - usuń element
                             tile.remove();
                             this.tiles.delete(key);
                         };
