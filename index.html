@@ -68,6 +68,7 @@
     <script>
         const TILE_SIZE = 2000;
         const imagePath = 'kafelki/';
+        const centralTiles = ['0,0', '0,-0', '-0,0', '-0,-0'];
 
         // Mapowanie stringowych współrzędnych na numeryczne pozycje
         function parseCoord(str) {
@@ -205,17 +206,25 @@
                     const key = getTileKey(x, y);
                     currentKeys.add(key);
                     if (!this.tiles.has(key)) {
-                        const imageUrl = `${imagePath}${key}.png`;
                         const tile = document.createElement('img');
                         tile.className = 'tile';
+                        // Priorytet PNG dla centralnych kafelków, WebP dla reszty
+                        const isCentral = centralTiles.includes(key);
+                        const imageUrl = isCentral ? `${imagePath}${key}.png` : `${imagePath}${key}.webp`;
                         tile.src = imageUrl;
-                        tile.onload = () => {
-                            // Obraz załadowany - zostaw
-                        };
                         tile.onerror = () => {
-                            // Obraz nie istnieje - usuń element
-                            tile.remove();
-                            this.tiles.delete(key);
+                            if (isCentral) {
+                                // Jeśli PNG nie istnieje, spróbuj WebP dla centralnych
+                                tile.src = `${imagePath}${key}.webp`;
+                                tile.onerror = () => {
+                                    tile.remove();
+                                    this.tiles.delete(key);
+                                };
+                            } else {
+                                // Dla nie-centralnych, usuń jeśli WebP nie istnieje
+                                tile.remove();
+                                this.tiles.delete(key);
+                            }
                         };
                         const posX = parseCoord(x) * TILE_SIZE;
                         const posY = parseCoord(y) * TILE_SIZE;
