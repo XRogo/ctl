@@ -31,9 +31,9 @@
             position: absolute;
             width: 2000px;
             height: 2000px;
-            image-rendering: pixelated; /* Ostre piksele przy zoomie */
-            image-rendering: -webkit-crisp-edges; /* Dla starszych przeglądarek */
-            image-rendering: -moz-crisp-edges; /* Dla Firefoksa */
+            image-rendering: pixelated;
+            image-rendering: -webkit-crisp-edges;
+            image-rendering: -moz-crisp-edges;
         }
         #zoom-controls {
             position: absolute;
@@ -79,6 +79,15 @@
         // Generowanie klucza dla kafelka
         function getTileKey(x, y) {
             return `${x},${y}`;
+        }
+
+        // Funkcja do debouncing
+        function debounce(func, wait) {
+            let timeout;
+            return function (...args) {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(this, args), wait);
+            };
         }
 
         class TileMap {
@@ -128,13 +137,13 @@
                     this.container.style.cursor = 'grabbing';
                 });
 
-                document.addEventListener('mousemove', (e) => {
+                document.addEventListener('mousemove', debounce((e) => {
                     if (this.dragging) {
                         this.posX = e.clientX - this.startX;
                         this.posY = e.clientY - this.startY;
                         this.render();
                     }
-                });
+                }, 16)); // ~60fps
 
                 document.addEventListener('mouseup', () => {
                     this.dragging = false;
