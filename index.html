@@ -79,6 +79,7 @@
         const ZOOM_THRESHOLD = 0.5;
         const imagePath = 'kafelki/';
         const centralTiles = ['0,0', '0,-0', '-0,0', '-0,-0'];
+        const MAX_RANGE = 3; // Maksymalny zakres kafelków (±3)
 
         // Mapowanie stringowych współrzędnych na numeryczne pozycje
         function parseCoord(str) {
@@ -101,12 +102,19 @@
             };
         }
 
-        // Sprawdzanie istnienia obrazu
+        // Sprawdzanie istnienia obrazu z cache
+        const imageCache = new Map();
         async function checkImageExists(url) {
+            if (imageCache.has(url)) {
+                return imageCache.get(url);
+            }
             try {
                 const response = await fetch(url, { method: 'HEAD' });
-                return response.ok;
+                const exists = response.ok;
+                imageCache.set(url, exists);
+                return exists;
             } catch {
+                imageCache.set(url, false);
                 return false;
             }
         }
@@ -162,8 +170,11 @@
 
                 document.addEventListener('mousemove', debounce((e) => {
                     if (this.dragging) {
-                        this.posX = e.clientX - this.startX;
-                        this.posY = e.clientY - this.startY;
+                        const newPosX = e.clientX - this.startX;
+                        const newPosY = e.clientY - this.startY;
+                        // Ogranicz przesuwanie
+                        this.posX = Math.max(Math.min(newPosX, this.getMaxPosX()), this.getMinPosX());
+                        this.posY = Math.max(Math.min(newPosY, this.getMaxPosY()), this.getMinPosY());
                         this.render();
                     }
                 }, 16)); // ~60fps
@@ -191,9 +202,25 @@
                 const dx = (centerX - this.posX) / this.zoom;
                 const dy = (centerY - this.posY) / this.zoom;
                 this.zoom = newZoom;
-                this.posX = centerX - dx * this.zoom;
-                this.posY = centerY - dy * this.zoom;
+                this.posX = Math.max(Math.min(centerX - dx * this.zoom, this.getMaxPosX()), this.getMinPosX());
+                this.posY = Math.max(Math.min(centerY - dy * this.zoom, this.getMaxPosY()), this.getMinPosY());
                 this.render();
+            }
+
+            getMinPosX() {
+                return -MAX_RANGE * TILE_SIZE * this.zoom + window.innerWidth / 2;
+            }
+
+            getMaxPosX() {
+                return MAX_RANGE * TILE_SIZE * this.zoom + window.innerWidth / 2;
+            }
+
+            getMinPosY() {
+                return -MAX_RANGE * TILE_SIZE * this.zoom + window.innerHeight / 2;
+            }
+
+            getMaxPosY() {
+                return MAX_RANGE * TILE_SIZE * this.zoom + window.innerHeight / 2;
             }
 
             getVisibleTiles() {
@@ -204,10 +231,9 @@
                 const minY = Math.floor((-this.posY / this.zoom - viewHeight / 2) / TILE_SIZE) - 1;
                 const maxY = Math.ceil((-this.posY / this.zoom + viewHeight / 2) / TILE_SIZE) + 1;
 
-                // Dynamiczny zakres w zależności od zoomu
-                const range = Math.max(3, Math.ceil(5 / this.zoom)); // Większy zakres przy mniejszym zoomie
+                // Ogranicz zakres do ±MAX_RANGE
                 const coordValues = [];
-                for (let i = Math.max(minX, -range); i <= Math.min(maxX, range); i++) {
+                for (let i = Math.max(minX, -MAX_RANGE); i <= Math.min(maxX, MAX_RANGE); i++) {
                     if (i === 0) {
                         coordValues.push('0', '-0');
                     } else if (i === -1) {
@@ -222,8 +248,6 @@
                         coordValues.push('-3');
                     } else if (i === 3) {
                         coordValues.push('3');
-                    } else {
-                        coordValues.push(i.toString());
                     }
                 }
                 // Sortuj, aby centralne kafelki były pierwsze
@@ -267,8 +291,8 @@
                     tile.onload = () => {
                         tile.classList.remove('hidden');
                     };
-                    const posX = parseCoord(x) * TILE_SIZE;
-                    const posY = parseCoord(y) * TILE_SIZE;
+                    const posX = parseCoord(x) * TILE_SIZE * (this.zoom < ZOOM_THRESHOLD ? LOW_QUALITY_SIZE / TILE_SIZE : 1);
+                    const posY = parseCoord(y) * TILE_SIZE * (this.zoom < ZOOM_THRESHOLD ? LOW_QUALITY_SIZE / TILE_SIZE : 1);
                     tile.style.left = `${posX}px`;
                     tile.style.top = `${posY}px`;
                     this.mapElement.appendChild(tile);
@@ -294,12 +318,18 @@
                 const visibleTiles = this.getVisibleTiles();
                 const currentKeys = new Set();
 
-                // Aktualizuj jakość istniejących kafelków
+                // Aktualizuj jakość i pozycję istniejących kafelków
                 this.tiles.forEach((tile, key) => {
                     if (this.zoom < ZOOM_THRESHOLD) {
                         tile.classList.add('low-quality');
+                        const [x, y] = key.split(',').map(parseCoord);
+                        tile.style.left = `${x * TILE_SIZE * (LOW_QUALITY_SIZE / TILE_SIZE)}px`;
+                        tile.style.top = `${y * TILE_SIZE * (LOW_QUALITY_SIZE / TILE_SIZE)}px`;
                     } else {
                         tile.classList.remove('low-quality');
+                        const [x, y] = key.split(',').map(parseCoord);
+                        tile.style.left = `${x * TILE_SIZE}px`;
+                        tile.style.top = `${y * TILE_SIZE}px`;
                     }
                 });
 
@@ -316,10 +346,14 @@
                 // Przetwarzaj kolejkę
                 this.processLoadQueue();
 
-                // Ukryj niewidoczne kafelki
+                // Ukryj niewidoczne kafelki z opóźnieniem
                 this.tiles.forEach((tile, key) => {
                     if (!currentKeys.has(key)) {
-                        tile.classList.add('hidden');
+                        setTimeout(() => {
+                            if (!currentKeys.has(key)) {
+                                tile.classList.add('hidden');
+                            }
+                        }, 200); // Opóźnienie 200ms, aby uniknąć migania
                     } else {
                         tile.classList.remove('hidden');
                     }
