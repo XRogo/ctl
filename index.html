@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mapa z Kafelkami</title>
+    <title>Mapa z Warstwami PNG i WebP</title>
     <style>
         body, html {
             margin: 0;
@@ -56,31 +56,24 @@
     </div>
 
     <script>
-        const TILE_SIZE = 2000;
+        const PNG_SIZE = 2000;
+        const WEBP_SIZE = 7612;
         const imagePath = 'kafelki/';
-        const centralTiles = ['0,0', '0,-0', '-0,0', '-0,-0'];
+        const tiles = ['0,0', '0,-0', '-0,0', '-0,-0'];
         const minZoom = 0.1;
         const maxZoom = 5;
 
         // Mapowanie stringowych współrzędnych na numeryczne pozycje
-        function parseCoord(str) {
+        function parseCoord(str, isWebP = false) {
+            const size = isWebP ? WEBP_SIZE : PNG_SIZE;
             if (str === '0') return 0;
-            if (str === '-0') return -1;
-            return parseInt(str, 10) > 0 ? parseInt(str, 10) : parseInt(str, 10) - 1;
+            if (str === '-0') return -size;
+            return parseInt(str, 10) > 0 ? parseInt(str, 10) * size : (parseInt(str, 10) - 1) * size;
         }
 
         // Generowanie klucza dla kafelka
         function getTileKey(x, y) {
             return `${x},${y}`;
-        }
-
-        // Funkcja do debouncing
-        function debounce(func, wait) {
-            let timeout;
-            return function (...args) {
-                clearTimeout(timeout);
-                timeout = setTimeout(() => func.apply(this, args), wait);
-            };
         }
 
         class TileMap {
@@ -89,8 +82,7 @@
                 this.canvas = document.getElementById('map');
                 this.ctx = this.canvas.getContext('2d');
                 this.ctx.imageSmoothingEnabled = false; // Ostre piksele
-                this.tiles = new Map(); // key => Image
-                this.availableTiles = new Set(); // Dostępne klucze kafelków
+                this.images = { png: new Map(), webp: new Map() }; // Cache obrazów
                 this.zoom = 1;
                 this.posX = 0;
                 this.posY = 0;
@@ -102,8 +94,8 @@
                 this.resizeCanvas();
                 window.addEventListener('resize', () => this.resizeCanvas());
 
-                // Ładuj dostępne kafelki na starcie
-                this.loadAvailableTiles().then(() => this.preLoadTiles());
+                // Ładuj obrazy
+                this.loadImages();
 
                 // Ustawiamy pozycję początkową
                 this.centerOnStyk();
@@ -111,35 +103,40 @@
                 // Inicjalizacja zdarzeń
                 this.setupEvents();
 
-                // Opóźnione renderowanie
-                setTimeout(() => this.render(), 0);
+                // Rozpocznij renderowanie
+                this.render();
             }
 
-            async loadAvailableTiles() {
-                try {
-                    const response = await fetch(imagePath);
-                    const text = await response.text();
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(text, 'text/html');
-                    const links = doc.querySelectorAll('a');
-                    links.forEach(a => {
-                        const filename = a.textContent.trim();
-                        if (filename.endsWith('.png') || filename.endsWith('.webp')) {
-                            const key = filename.slice(0, filename.lastIndexOf('.'));
-                            this.availableTiles.add(key);
-                        }
-                    });
-                } catch (e) {
-                    console.error('Nie udało się pobrać listy plików z folderu kafelki. Używam fallbacku na centralne kafelki.', e);
-                    centralTiles.forEach(key => this.availableTiles.add(key));
-                }
-            }
-
-            preLoadTiles() {
-                this.availableTiles.forEach(key => {
+            loadImages() {
+                // Najpierw ładuj PNG
+                tiles.forEach(key => {
                     const [x, y] = key.split(',');
-                    this.getTileImage(x, y);
+                    const img = new Image();
+                    img.src = `${imagePath}${key}.png`;
+                    img.onerror = () => {
+                        console.error(`Nie udało się załadować ${img.src}`);
+                    };
+                    this.images.png.set(key, img);
                 });
+
+                // Następnie ładuj WebP sekwencyjnie
+                const loadWebPSequentially = (index = 0) => {
+                    if (index >= tiles.length) return;
+                    const key = tiles[index];
+                    const [x, y] = key.split(',');
+                    const img = new Image();
+                    img.src = `${imagePath}${key}.webp`;
+                    img.onload = () => {
+                        this.images.webp.set(key, img);
+                        this.render(); // Odśwież po załadowaniu
+                        loadWebPSequentially(index + 1); // Ładuj kolejny
+                    };
+                    img.onerror = () => {
+                        console.error(`Nie udało się załadować ${img.src}`);
+                        loadWebPSequentially(index + 1); // Kontynuuj mimo błędu
+                    };
+                };
+                loadWebPSequentially();
             }
 
             resizeCanvas() {
@@ -177,15 +174,15 @@
                     this.container.style.cursor = 'grabbing';
                 });
 
-                document.addEventListener('mousemove', debounce((e) => {
+                document.addEventListener('mousemove', (e) => {
                     if (this.dragging) {
                         this.posX += e.clientX - this.startX;
-                        this.posY += e.clientY - this.startY;
                         this.startX = e.clientX;
+                        this.posY += e.clientY - this.startY;
                         this.startY = e.clientY;
                         this.render();
                     }
-                }, 16)); // ~60fps
+                });
 
                 document.addEventListener('mouseup', () => {
                     this.dragging = false;
@@ -203,49 +200,15 @@
                 this.render();
             }
 
-            getVisibleTiles() {
+            isVisible(x, y, width, height) {
                 const viewWidth = this.canvas.width / this.zoom;
                 const viewHeight = this.canvas.height / this.zoom;
-                const minX = Math.floor((-this.posX / this.zoom - viewWidth / 2) / TILE_SIZE) - 1;
-                const maxX = Math.ceil((-this.posX / this.zoom + viewWidth / 2) / TILE_SIZE) + 1;
-                const minY = Math.floor((-this.posY / this.zoom - viewHeight / 2) / TILE_SIZE) - 1;
-                const maxY = Math.ceil((-this.posY / this.zoom + viewHeight / 2) / TILE_SIZE) + 1;
+                const viewLeft = -this.posX / this.zoom - viewWidth / 2;
+                const viewRight = viewLeft + viewWidth;
+                const viewTop = -this.posY / this.zoom - viewHeight / 2;
+                const viewBottom = viewTop + viewHeight;
 
-                const coordValues = [];
-                for (let i = Math.max(minX, -5); i <= Math.min(maxX, 5); i++) { // Zakres ±5, dostosuj jeśli więcej kafelków
-                    if (i === 0) {
-                        coordValues.push('0', '-0');
-                    } else {
-                        coordValues.push(i.toString());
-                    }
-                }
-                const allVisible = coordValues.flatMap(x => coordValues.map(y => ({ x, y })));
-                return allVisible.filter(({x, y}) => this.availableTiles.has(getTileKey(x, y)));
-            }
-
-            getTileImage(x, y) {
-                const key = getTileKey(x, y);
-                if (!this.tiles.has(key)) {
-                    const isCentral = centralTiles.includes(key);
-                    const ext = isCentral ? 'png' : 'webp';
-                    const imageUrl = `${imagePath}${key}.${ext}`;
-                    const img = new Image();
-                    img.src = imageUrl;
-                    img.onerror = () => {
-                        if (isCentral) {
-                            img.src = `${imagePath}${key}.webp`; // Fallback WebP dla centralnych
-                            img.onerror = () => {
-                                this.tiles.delete(key);
-                                this.availableTiles.delete(key);
-                            };
-                        } else {
-                            this.tiles.delete(key);
-                            this.availableTiles.delete(key);
-                        }
-                    };
-                    this.tiles.set(key, img);
-                }
-                return this.tiles.get(key);
+                return x < viewRight && x + width > viewLeft && y < viewBottom && y + height > viewTop;
             }
 
             render() {
@@ -254,18 +217,32 @@
                 this.ctx.translate(this.posX, this.posY);
                 this.ctx.scale(this.zoom, this.zoom);
 
-                const visibleTiles = this.getVisibleTiles();
+                // Rysuj warstwę WebP
+                tiles.forEach(key => {
+                    const [x, y] = key.split(',');
+                    const img = this.images.webp.get(key);
+                    const posX = parseCoord(x, true);
+                    const posY = parseCoord(y, true);
+                    if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, WEBP_SIZE, WEBP_SIZE)) {
+                        this.ctx.drawImage(img, posX, posY, WEBP_SIZE, WEBP_SIZE);
+                    }
+                });
 
-                visibleTiles.forEach(({ x, y }) => {
-                    const img = this.getTileImage(x, y);
-                    if (img && img.complete && img.naturalWidth > 0) {
-                        const posX = parseCoord(x) * TILE_SIZE;
-                        const posY = parseCoord(y) * TILE_SIZE;
-                        this.ctx.drawImage(img, posX, posY, TILE_SIZE, TILE_SIZE);
+                // Rysuj warstwę PNG
+                tiles.forEach(key => {
+                    const [x, y] = key.split(',');
+                    const img = this.images.png.get(key);
+                    const posX = parseCoord(x, false);
+                    const posY = parseCoord(y, false);
+                    if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, PNG_SIZE, PNG_SIZE)) {
+                        this.ctx.drawImage(img, posX, posY, PNG_SIZE, PNG_SIZE);
                     }
                 });
 
                 this.ctx.restore();
+
+                // Kontynuuj renderowanie z requestAnimationFrame
+                requestAnimationFrame(() => this.render());
             }
         }
 
