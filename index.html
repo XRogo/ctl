@@ -24,6 +24,7 @@
             position: absolute;
             top: 0;
             left: 0;
+            image-rendering: pixelated; /* Dodatkowe wsparcie dla ostrości */
         }
         #zoom-controls {
             position: absolute;
@@ -98,6 +99,9 @@
                 this.canvas = document.getElementById('map');
                 this.ctx = this.canvas.getContext('2d');
                 this.ctx.imageSmoothingEnabled = false; // Ostre piksele
+                this.ctx.mozImageSmoothingEnabled = false; // Firefox
+                this.ctx.webkitImageSmoothingEnabled = false; // Safari
+                this.ctx.msImageSmoothingEnabled = false; // IE
                 this.images = { png: new Map(), webp: new Map() }; // Cache obrazów
                 this.loadWebPEnabled = false; // Domyślnie wyłączone ładowanie WebP
                 this.zoom = 1;
@@ -186,6 +190,7 @@
             resizeCanvas() {
                 this.canvas.width = window.innerWidth;
                 this.canvas.height = window.innerHeight;
+                this.canvas.style.imageRendering = 'pixelated'; // Dodatkowe wsparcie dla ostrości
                 this.needsRedraw = true;
             }
 
@@ -265,14 +270,12 @@
                 const { minX, maxX, minY, maxY } = this.getMapBounds();
                 const viewWidth = this.canvas.width / this.zoom;
                 const viewHeight = this.canvas.height / this.zoom;
-                const mapWidth = maxX - minX;
-                const mapHeight = maxY - minY;
 
                 // Oblicz granice, aby co najmniej 1 px mapy był widoczny
-                const minPosX = - (mapWidth * this.zoom - 1);
-                const maxPosX = this.canvas.width - 1;
-                const minPosY = - (mapHeight * this.zoom - 1);
-                const maxPosY = this.canvas.height - 1;
+                const minPosX = -(maxX * this.zoom - 1);
+                const maxPosX = this.canvas.width - (minX * this.zoom + 1);
+                const minPosY = -(maxY * this.zoom - 1);
+                const maxPosY = this.canvas.height - (minY * this.zoom + 1);
 
                 this.posX = Math.max(minPosX, Math.min(maxPosX, this.posX));
                 this.posY = Math.max(minPosY, Math.min(maxPosY, this.posY));
@@ -298,7 +301,9 @@
                 this.needsRedraw = false;
                 this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
                 this.ctx.save();
-                this.ctx.translate(this.posX, this.posY);
+                // Zaokrąglanie pozycji dla ostrości pikseli
+                const pixelRatio = window.devicePixelRatio || 1;
+                this.ctx.translate(Math.round(this.posX * pixelRatio) / pixelRatio, Math.round(this.posY * pixelRatio) / pixelRatio);
                 this.ctx.scale(this.zoom, this.zoom);
 
                 // Rysuj warstwę WebP jeśli włączone
@@ -309,7 +314,7 @@
                         const posX = parseCoord(x, true);
                         const posY = parseCoord(y, true);
                         if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, WEBP_SIZE, WEBP_SIZE)) {
-                            this.ctx.drawImage(img, posX, posY, WEBP_SIZE, WEBP_SIZE);
+                            this.ctx.drawImage(img, Math.round(posX), Math.round(posY), WEBP_SIZE, WEBP_SIZE);
                         }
                     });
                 }
@@ -321,7 +326,7 @@
                     const posX = parseCoord(x, false);
                     const posY = parseCoord(y, false);
                     if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, PNG_SIZE, PNG_SIZE)) {
-                        this.ctx.drawImage(img, posX, posY, PNG_SIZE, PNG_SIZE);
+                        this.ctx.drawImage(img, Math.round(posX), Math.round(posY), PNG_SIZE, PNG_SIZE);
                     }
                 });
 
