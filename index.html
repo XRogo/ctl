@@ -254,6 +254,8 @@
             }
 
             setZoom(newZoom, centerX = this.canvas.width / 2, centerY = this.canvas.height / 2) {
+                // Zaokrąglij zoom do najbliższej wartości zapewniającej ostrość (np. 1.0, 2.0, 3.0)
+                newZoom = Math.round(newZoom * 10) / 10; // Zaokrąglenie do 1 miejsca po przecinku
                 newZoom = Math.max(minZoom, Math.min(maxZoom, newZoom));
                 const worldX = (centerX - this.posX) / this.zoom;
                 const worldY = (centerY - this.posY) / this.zoom;
@@ -326,12 +328,14 @@
                 this.lastPosY = this.posY;
                 this.lastZoom = this.zoom;
 
-                console.log(`Rendering: posX=${this.posX}, posY=${this.posY}, zoom=${this.zoom}`);
+                console.log(`Rendering: posX=${Math.round(this.posX)}, posY=${Math.round(this.posY)}, zoom=${this.zoom}`);
 
                 this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
                 this.ctx.save();
                 // Precyzyjne zaokrąglanie dla ostrości pikseli
-                this.ctx.translate(Math.round(this.posX), Math.round(this.posY));
+                const pixelPerfectX = Math.round(this.posX * this.zoom) / this.zoom;
+                const pixelPerfectY = Math.round(this.posY * this.zoom) / this.zoom;
+                this.ctx.translate(pixelPerfectX, pixelPerfectY);
                 this.ctx.scale(this.zoom, this.zoom);
 
                 // Pobierz tylko widoczne kafelki
@@ -347,8 +351,11 @@
                         const posX = parseCoord(x, true);
                         const posY = parseCoord(y, true);
                         if (img && img.complete && img.naturalWidth > 0) {
-                            this.ctx.drawImage(img, Math.round(posX), Math.round(posY), WEBP_SIZE, WEBP_SIZE);
+                            const pixelPerfectPosX = Math.round(posX * this.zoom) / this.zoom;
+                            const pixelPerfectPosY = Math.round(posY * this.zoom) / this.zoom;
+                            this.ctx.drawImage(img, pixelPerfectPosX, pixelPerfectPosY, WEBP_SIZE, WEBP_SIZE);
                             webpCount++;
+                            console.log(`WebP ${key}: (${pixelPerfectPosX}, ${pixelPerfectPosY})`);
                         }
                     });
                 }
@@ -361,8 +368,11 @@
                     const posX = parseCoord(x, false);
                     const posY = parseCoord(y, false);
                     if (img && img.complete && img.naturalWidth > 0) {
-                        this.ctx.drawImage(img, Math.round(posX), Math.round(posY), PNG_SIZE, PNG_SIZE);
+                        const pixelPerfectPosX = Math.round(posX * this.zoom) / this.zoom;
+                        const pixelPerfectPosY = Math.round(posY * this.zoom) / this.zoom;
+                        this.ctx.drawImage(img, pixelPerfectPosX, pixelPerfectPosY, PNG_SIZE, PNG_SIZE);
                         pngCount++;
+                        console.log(`PNG ${key}: (${pixelPerfectPosX}, ${pixelPerfectPosY})`);
                     }
                 });
 
