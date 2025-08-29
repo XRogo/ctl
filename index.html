@@ -26,6 +26,7 @@
             left: 0;
             transform-origin: center center;
             will-change: transform;
+            backface-visibility: hidden; /* Poprawia rendering w Chrome */
         }
         .tile {
             position: absolute;
@@ -128,7 +129,7 @@
                 this.setupEvents();
 
                 // Rozpocznij renderowanie
-                setTimeout(() => this.render(), 0);
+                requestAnimationFrame(() => this.render());
             }
 
             centerOnStyk() {
@@ -260,8 +261,11 @@
                         tile.style.height = `${WEBP_SIZE}px`;
                         tile.src = imageUrl;
                         tile.onload = () => {
-                            this.tiles.webp.set(key, tile);
-                            this.needsRedraw = true;
+                            if (tile.complete && tile.naturalWidth > 0) {
+                                this.tiles.webp.set(key, tile);
+                                this.needsRedraw = true;
+                                this.render();
+                            }
                             loadWebPSequentially(index + 1); // Ładuj kolejny
                         };
                         tile.onerror = () => {
@@ -274,6 +278,7 @@
                         const posY = parseCoord(y, true);
                         tile.style.left = `${posX}px`;
                         tile.style.top = `${posY}px`;
+                        tile.style.display = 'none'; // Początkowo niewidoczny
                         this.mapElement.appendChild(tile);
                         this.tiles.webp.set(key, tile);
                     };
@@ -307,7 +312,7 @@
 
             render() {
                 if (!this.needsRedraw && this.posX === this.lastPosX && this.posY === this.lastPosY && this.zoom === this.lastZoom) {
-                    setTimeout(() => this.render(), 0);
+                    requestAnimationFrame(() => this.render());
                     return;
                 }
 
@@ -341,8 +346,10 @@
                         tile.style.height = `${PNG_SIZE}px`;
                         tile.src = imageUrl;
                         tile.onload = () => {
-                            this.needsRedraw = true;
-                            this.render(); // Odśwież po załadowaniu
+                            if (tile.complete && tile.naturalWidth > 0) {
+                                this.needsRedraw = true;
+                                this.render(); // Odśwież po załadowaniu
+                            }
                         };
                         tile.onerror = () => {
                             console.error(`Nie udało się załadować ${imageUrl}`);
@@ -353,11 +360,17 @@
                         const posY = parseCoord(y, false);
                         tile.style.left = `${posX}px`;
                         tile.style.top = `${posY}px`;
+                        tile.style.display = 'block';
                         console.log(`PNG ${key}: left=${posX}px, top=${posY}px`);
                         this.mapElement.appendChild(tile);
                         this.tiles.png.set(key, tile);
+                    } else {
+                        const tile = this.tiles.png.get(key);
+                        if (tile.complete && tile.naturalWidth > 0) {
+                            tile.style.display = 'block';
+                            pngCount++;
+                        }
                     }
-                    pngCount++;
                 });
 
                 // Rysuj WebP
@@ -372,37 +385,38 @@
                             const posY = parseCoord(y, true);
                             tile.style.left = `${posX}px`;
                             tile.style.top = `${posY}px`;
-                            console.log(`WebP ${key}: left=${posX}px, top=${posY}px`);
+                            if (tile.complete && tile.naturalWidth > 0) {
+                                tile.style.display = 'block';
+                                console.log(`WebP ${key}: left=${posX}px, top=${posY}px`);
+                                webpCount++;
+                            } else {
+                                tile.style.display = 'none';
+                            }
                             if (!tile.parentElement) {
                                 this.mapElement.appendChild(tile);
                             }
-                            webpCount++;
                         }
                     });
                 }
 
-                // Usuń niewidoczne kafelki PNG
+                // Ukryj niewidoczne kafelki PNG
                 this.tiles.png.forEach((tile, key) => {
                     if (!currentPNGKeys.has(key)) {
-                        tile.src = '';
-                        tile.remove();
-                        this.tiles.png.delete(key);
+                        tile.style.display = 'none';
                     }
                 });
 
-                // Usuń niewidoczne kafelki WebP
+                // Ukryj niewidoczne kafelki WebP
                 this.tiles.webp.forEach((tile, key) => {
                     if (!currentWebPKeys.has(key)) {
-                        tile.src = '';
-                        tile.remove();
-                        this.tiles.webp.delete(key);
+                        tile.style.display = 'none';
                     }
                 });
 
                 console.log(`Rendered ${webpCount} WebP, ${pngCount} PNG, Visible WebP: ${visibleWebPTiles.length}, Visible PNG: ${visiblePNGTiles.length}`);
 
                 // Kontynuuj renderowanie
-                setTimeout(() => this.render(), 0);
+                requestAnimationFrame(() => this.render());
             }
         }
 
