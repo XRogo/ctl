@@ -106,6 +106,7 @@
                 this.dragging = false;
                 this.startX = 0;
                 this.startY = 0;
+                this.needsRedraw = true; // Flaga do kontroli redraw
 
                 // Ustaw rozmiar canvas
                 this.resizeCanvas();
@@ -125,7 +126,7 @@
                 this.setupEvents();
 
                 // Rozpocznij renderowanie
-                this.render();
+                requestAnimationFrame(() => this.render());
             }
 
             loadImages() {
@@ -134,6 +135,7 @@
                     const [x, y] = key.split(',');
                     const img = new Image();
                     img.src = `${imagePath}${key}.png`;
+                    img.onload = () => this.needsRedraw = true;
                     img.onerror = () => {
                         console.error(`Nie udało się załadować ${img.src}`);
                     };
@@ -152,7 +154,7 @@
                         img.src = `${imagePath}${key}.webp`;
                         img.onload = () => {
                             this.images.webp.set(key, img);
-                            this.render(); // Odśwież po załadowaniu
+                            this.needsRedraw = true;
                             loadWebPSequentially(index + 1); // Ładuj kolejny
                         };
                         img.onerror = () => {
@@ -175,7 +177,8 @@
                 } else {
                     this.loadWebPEnabled = false;
                     this.toggleButton.textContent = '🔒';
-                    this.images.webp.clear(); // Wyczyść cache WebP, ale pozostaw w pamięci jeśli potrzeba
+                    this.images.webp.clear(); // Wyczyść cache WebP
+                    this.needsRedraw = true;
                     this.render();
                 }
             }
@@ -183,7 +186,7 @@
             resizeCanvas() {
                 this.canvas.width = window.innerWidth;
                 this.canvas.height = window.innerHeight;
-                this.render();
+                this.needsRedraw = true;
             }
 
             centerOnStyk() {
@@ -222,7 +225,7 @@
                         this.posY += e.clientY - this.startY;
                         this.startY = e.clientY;
                         this.clampPosition();
-                        this.render();
+                        this.needsRedraw = true;
                     }
                 });
 
@@ -240,7 +243,7 @@
                 this.posX = centerX - worldX * this.zoom;
                 this.posY = centerY - worldY * this.zoom;
                 this.clampPosition();
-                this.render();
+                this.needsRedraw = true;
             }
 
             getMapBounds() {
@@ -265,9 +268,14 @@
                 const mapWidth = maxX - minX;
                 const mapHeight = maxY - minY;
 
-                // Ogranicz posX i posY, aby mapa nie wychodziła poza ekran
-                this.posX = Math.min(this.canvas.width / 2, Math.max(this.canvas.width / 2 - (mapWidth * this.zoom - this.canvas.width), this.posX));
-                this.posY = Math.min(this.canvas.height / 2, Math.max(this.canvas.height / 2 - (mapHeight * this.zoom - this.canvas.height), this.posY));
+                // Oblicz granice, aby co najmniej 1 px mapy był widoczny
+                const minPosX = - (mapWidth * this.zoom - 1);
+                const maxPosX = this.canvas.width - 1;
+                const minPosY = - (mapHeight * this.zoom - 1);
+                const maxPosY = this.canvas.height - 1;
+
+                this.posX = Math.max(minPosX, Math.min(maxPosX, this.posX));
+                this.posY = Math.max(minPosY, Math.min(maxPosY, this.posY));
             }
 
             isVisible(x, y, width, height) {
@@ -282,6 +290,12 @@
             }
 
             render() {
+                if (!this.needsRedraw) {
+                    requestAnimationFrame(() => this.render());
+                    return;
+                }
+
+                this.needsRedraw = false;
                 this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
                 this.ctx.save();
                 this.ctx.translate(this.posX, this.posY);
