@@ -317,6 +317,7 @@
 
                 const visibleTiles = this.getVisibleTiles();
                 const currentKeys = new Set();
+                console.log(`Rendering ${visibleTiles.length} tiles`);
 
                 // Aktualizuj jakość i pozycję istniejących kafelków
                 this.tiles.forEach((tile, key) => {
