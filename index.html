@@ -305,6 +305,16 @@
                 return x < viewRight && x + width > viewLeft && y < viewBottom && y + height > viewTop;
             }
 
+            getVisibleTiles(isWebP = false) {
+                const size = isWebP ? WEBP_SIZE : PNG_SIZE;
+                return tiles.filter(key => {
+                    const [x, y] = key.split(',');
+                    const posX = parseCoord(x, isWebP);
+                    const posY = parseCoord(y, isWebP);
+                    return this.isVisible(posX, posY, size, size);
+                });
+            }
+
             render() {
                 if (!this.needsRedraw && this.posX === this.lastPosX && this.posY === this.lastPosY && this.zoom === this.lastZoom) {
                     requestAnimationFrame(() => this.render());
@@ -324,37 +334,39 @@
                 this.ctx.translate(Math.round(this.posX), Math.round(this.posY));
                 this.ctx.scale(this.zoom, this.zoom);
 
+                // Pobierz tylko widoczne kafelki
+                const visibleWebPTiles = this.loadWebPEnabled ? this.getVisibleTiles(true) : [];
+                const visiblePNGTiles = this.getVisibleTiles(false);
+
                 // Rysuj warstwę WebP jeśli włączone
                 let webpCount = 0;
                 if (this.loadWebPEnabled) {
-                    tiles.forEach(key => {
+                    visibleWebPTiles.forEach(key => {
                         const [x, y] = key.split(',');
                         const img = this.images.webp.get(key);
                         const posX = parseCoord(x, true);
                         const posY = parseCoord(y, true);
-                        if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, WEBP_SIZE, WEBP_SIZE)) {
+                        if (img && img.complete && img.naturalWidth > 0) {
                             this.ctx.drawImage(img, Math.round(posX), Math.round(posY), WEBP_SIZE, WEBP_SIZE);
                             webpCount++;
-                            console.log(`WebP ${key}: (${posX}, ${posY})`);
                         }
                     });
                 }
 
                 // Rysuj warstwę PNG
                 let pngCount = 0;
-                tiles.forEach(key => {
+                visiblePNGTiles.forEach(key => {
                     const [x, y] = key.split(',');
                     const img = this.images.png.get(key);
                     const posX = parseCoord(x, false);
                     const posY = parseCoord(y, false);
-                    if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, PNG_SIZE, PNG_SIZE)) {
+                    if (img && img.complete && img.naturalWidth > 0) {
                         this.ctx.drawImage(img, Math.round(posX), Math.round(posY), PNG_SIZE, PNG_SIZE);
                         pngCount++;
-                        console.log(`PNG ${key}: (${posX}, ${posY})`);
                     }
                 });
 
-                console.log(`Rendered ${webpCount} WebP, ${pngCount} PNG`);
+                console.log(`Rendered ${webpCount} WebP, ${pngCount} PNG, Visible WebP: ${visibleWebPTiles.length}, Visible PNG: ${visiblePNGTiles.length}`);
 
                 this.ctx.restore();
 
