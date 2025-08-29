@@ -82,7 +82,6 @@
         const tiles = ['0,0', '0,-0', '-0,0', '-0,-0'];
         const minZoom = 0.1;
         const maxZoom = 5;
-        const FRAME_LIMIT_MS = 33; // Ograniczenie do ~30 FPS (1000ms / 33ms)
 
         // Mapowanie stringowych współrzędnych na numeryczne pozycje
         function parseCoord(str, isWebP = false) {
@@ -95,15 +94,6 @@
         // Generowanie klucza dla kafelka
         function getTileKey(x, y) {
             return `${x},${y}`;
-        }
-
-        // Debouncing dla mousemove
-        function debounce(func, wait) {
-            let timeout;
-            return function (...args) {
-                clearTimeout(timeout);
-                timeout = setTimeout(() => func.apply(this, args), wait);
-            };
         }
 
         class TileMap {
@@ -127,7 +117,6 @@
                 this.lastPosX = 0;
                 this.lastPosY = 0;
                 this.lastZoom = 1;
-                this.lastRenderTime = 0;
 
                 // Ustaw rozmiar canvas
                 this.resizeCanvas();
@@ -208,18 +197,17 @@
             }
 
             resizeCanvas() {
-                this.canvas.width = window.innerWidth * window.devicePixelRatio;
-                this.canvas.height = window.innerHeight * window.devicePixelRatio;
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
                 this.canvas.style.width = window.innerWidth + 'px';
                 this.canvas.style.height = window.innerHeight + 'px';
-                this.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
                 this.canvas.style.imageRendering = 'pixelated'; // Ostrość pikseli
                 this.needsRedraw = true;
             }
 
             centerOnStyk() {
-                this.posX = (this.canvas.width / window.devicePixelRatio) / 2;
-                this.posY = (this.canvas.height / window.devicePixelRatio) / 2;
+                this.posX = this.canvas.width / 2;
+                this.posY = this.canvas.height / 2;
                 this.lastPosX = this.posX;
                 this.lastPosY = this.posY;
             }
@@ -248,7 +236,7 @@
                     this.container.style.cursor = 'grabbing';
                 });
 
-                document.addEventListener('mousemove', debounce((e) => {
+                document.addEventListener('mousemove', (e) => {
                     if (this.dragging) {
                         this.posX += e.clientX - this.startX;
                         this.startX = e.clientX;
@@ -257,7 +245,7 @@
                         this.clampPosition();
                         this.needsRedraw = true;
                     }
-                }, 16)); // Debouncing 16ms (~60 FPS)
+                });
 
                 document.addEventListener('mouseup', () => {
                     this.dragging = false;
@@ -265,7 +253,7 @@
                 });
             }
 
-            setZoom(newZoom, centerX = (this.canvas.width / window.devicePixelRatio) / 2, centerY = (this.canvas.height / window.devicePixelRatio) / 2) {
+            setZoom(newZoom, centerX = this.canvas.width / 2, centerY = this.canvas.height / 2) {
                 newZoom = Math.max(minZoom, Math.min(maxZoom, newZoom));
                 const worldX = (centerX - this.posX) / this.zoom;
                 const worldY = (centerY - this.posY) / this.zoom;
@@ -293,22 +281,22 @@
 
             clampPosition() {
                 const { minX, maxX, minY, maxY } = this.getMapBounds();
-                const viewWidth = (this.canvas.width / window.devicePixelRatio) / this.zoom;
-                const viewHeight = (this.canvas.height / window.devicePixelRatio) / this.zoom;
+                const viewWidth = this.canvas.width / this.zoom;
+                const viewHeight = this.canvas.height / this.zoom;
 
                 // Oblicz granice, aby co najmniej 1 px mapy był widoczny
                 const minPosX = -(maxX * this.zoom - 1);
-                const maxPosX = (this.canvas.width / window.devicePixelRatio) - (minX * this.zoom + 1);
+                const maxPosX = this.canvas.width - (minX * this.zoom + 1);
                 const minPosY = -(maxY * this.zoom - 1);
-                const maxPosY = (this.canvas.height / window.devicePixelRatio) - (minY * this.zoom + 1);
+                const maxPosY = this.canvas.height - (minY * this.zoom + 1);
 
                 this.posX = Math.max(minPosX, Math.min(maxPosX, this.posX));
                 this.posY = Math.max(minPosY, Math.min(maxPosY, this.posY));
             }
 
             isVisible(x, y, width, height) {
-                const viewWidth = (this.canvas.width / window.devicePixelRatio) / this.zoom;
-                const viewHeight = (this.canvas.height / window.devicePixelRatio) / this.zoom;
+                const viewWidth = this.canvas.width / this.zoom;
+                const viewHeight = this.canvas.height / this.zoom;
                 const viewLeft = -this.posX / this.zoom;
                 const viewRight = viewLeft + viewWidth;
                 const viewTop = -this.posY / this.zoom;
@@ -318,12 +306,7 @@
             }
 
             render() {
-                const now = performance.now();
                 if (!this.needsRedraw && this.posX === this.lastPosX && this.posY === this.lastPosY && this.zoom === this.lastZoom) {
-                    requestAnimationFrame(() => this.render());
-                    return;
-                }
-                if (now - this.lastRenderTime < FRAME_LIMIT_MS) {
                     requestAnimationFrame(() => this.render());
                     return;
                 }
@@ -332,15 +315,13 @@
                 this.lastPosX = this.posX;
                 this.lastPosY = this.posY;
                 this.lastZoom = this.zoom;
-                this.lastRenderTime = now;
 
                 console.log(`Rendering: posX=${this.posX}, posY=${this.posY}, zoom=${this.zoom}`);
 
                 this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
                 this.ctx.save();
                 // Precyzyjne zaokrąglanie dla ostrości pikseli
-                const pixelRatio = window.devicePixelRatio || 1;
-                this.ctx.translate(Math.round(this.posX * pixelRatio) / pixelRatio, Math.round(this.posY * pixelRatio) / pixelRatio);
+                this.ctx.translate(Math.round(this.posX), Math.round(this.posY));
                 this.ctx.scale(this.zoom, this.zoom);
 
                 // Rysuj warstwę WebP jeśli włączone
@@ -352,7 +333,7 @@
                         const posX = parseCoord(x, true);
                         const posY = parseCoord(y, true);
                         if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, WEBP_SIZE, WEBP_SIZE)) {
-                            this.ctx.drawImage(img, Math.round(posX * pixelRatio) / pixelRatio, Math.round(posY * pixelRatio) / pixelRatio, WEBP_SIZE, WEBP_SIZE);
+                            this.ctx.drawImage(img, Math.round(posX), Math.round(posY), WEBP_SIZE, WEBP_SIZE);
                             webpCount++;
                             console.log(`WebP ${key}: (${posX}, ${posY})`);
                         }
@@ -367,7 +348,7 @@
                     const posX = parseCoord(x, false);
                     const posY = parseCoord(y, false);
                     if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, PNG_SIZE, PNG_SIZE)) {
-                        this.ctx.drawImage(img, Math.round(posX * pixelRatio) / pixelRatio, Math.round(posY * pixelRatio) / pixelRatio, PNG_SIZE, PNG_SIZE);
+                        this.ctx.drawImage(img, Math.round(posX), Math.round(posY), PNG_SIZE, PNG_SIZE);
                         pngCount++;
                         console.log(`PNG ${key}: (${posX}, ${posY})`);
                     }
@@ -376,11 +357,6 @@
                 console.log(`Rendered ${webpCount} WebP, ${pngCount} PNG`);
 
                 this.ctx.restore();
-
-                // Log pamięci, jeśli dostępne
-                if (performance.memory) {
-                    console.log(`Memory: used=${(performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(2)} MB, total=${(performance.memory.totalJSHeapSize / 1024 / 1024).toFixed(2)} MB`);
-                }
 
                 // Kontynuuj renderowanie
                 requestAnimationFrame(() => this.render());
