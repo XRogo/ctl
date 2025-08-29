@@ -24,15 +24,10 @@
             position: absolute;
             top: 0;
             left: 0;
-            transform-origin: center center;
-            will-change: transform;
-            backface-visibility: hidden; /* Poprawia rendering w Chrome */
-        }
-        .tile {
-            position: absolute;
             image-rendering: pixelated; /* Ostrość pikseli */
-            image-rendering: -webkit-crisp-edges; /* Dla starszych przeglądarek */
-            image-rendering: -moz-crisp-edges; /* Dla Firefoksa */
+            image-rendering: -moz-crisp-edges; /* Firefox */
+            image-rendering: crisp-edges; /* Standard */
+            -webkit-font-smoothing: none; /* Safari */
         }
         #zoom-controls {
             position: absolute;
@@ -72,7 +67,7 @@
 </head>
 <body>
     <div id="map-container">
-        <div id="map"></div>
+        <canvas id="map"></canvas>
     </div>
     <div id="zoom-controls">
         <button id="zoom-in">+</button>
@@ -104,9 +99,14 @@
         class TileMap {
             constructor(container) {
                 this.container = container;
-                this.mapElement = document.getElementById('map');
-                this.tiles = { png: new Map(), webp: new Map() }; // Cache kafelków PNG i WebP
-                this.loadWebPEnabled = false; // Domyślnie wyłączone WebP
+                this.canvas = document.getElementById('map');
+                this.ctx = this.canvas.getContext('2d');
+                this.ctx.imageSmoothingEnabled = false; // Ostre piksele
+                this.ctx.mozImageSmoothingEnabled = false; // Firefox
+                this.ctx.webkitImageSmoothingEnabled = false; // Safari
+                this.ctx.msImageSmoothingEnabled = false; // IE
+                this.images = { png: new Map(), webp: new Map() }; // Cache obrazów
+                this.loadWebPEnabled = false; // Domyślnie wyłączone ładowanie WebP
                 this.zoom = 1;
                 this.posX = 0;
                 this.posY = 0;
@@ -118,12 +118,19 @@
                 this.lastPosY = 0;
                 this.lastZoom = 1;
 
-                // Ustawiamy pozycję początkową
-                this.centerOnStyk();
+                // Ustaw rozmiar canvas
+                this.resizeCanvas();
+                window.addEventListener('resize', () => this.resizeCanvas());
+
+                // Ładuj PNG na starcie
+                this.loadImages();
 
                 // Przycisk przełączania WebP
                 this.toggleButton = document.getElementById('toggle-webp');
                 this.toggleButton.addEventListener('click', () => this.toggleWebP());
+
+                // Ustawiamy pozycję początkową
+                this.centerOnStyk();
 
                 // Inicjalizacja zdarzeń
                 this.setupEvents();
@@ -132,9 +139,75 @@
                 requestAnimationFrame(() => this.render());
             }
 
+            loadImages() {
+                // Ładuj PNG zawsze
+                tiles.forEach(key => {
+                    const [x, y] = key.split(',');
+                    const img = new Image();
+                    img.src = `${imagePath}${key}.png`;
+                    img.onload = () => this.needsRedraw = true;
+                    img.onerror = () => {
+                        console.error(`Nie udało się załadować ${img.src}`);
+                    };
+                    this.images.png.set(key, img);
+                });
+            }
+
+            loadWebP() {
+                if (this.loadWebPEnabled) {
+                    // Ładuj WebP sekwencyjnie
+                    const loadWebPSequentially = (index = 0) => {
+                        if (index >= tiles.length) return;
+                        const key = tiles[index];
+                        const [x, y] = key.split(',');
+                        const img = new Image();
+                        img.src = `${imagePath}${key}.webp`;
+                        img.onload = () => {
+                            this.images.webp.set(key, img);
+                            this.needsRedraw = true;
+                            loadWebPSequentially(index + 1); // Ładuj kolejny
+                        };
+                        img.onerror = () => {
+                            console.error(`Nie udało się załadować ${img.src}`);
+                            loadWebPSequentially(index + 1); // Kontynuuj mimo błędu
+                        };
+                    };
+                    loadWebPSequentially();
+                }
+            }
+
+            toggleWebP() {
+                if (!this.loadWebPEnabled) {
+                    const confirmLoad = confirm("Włączenie tej funkcji pozwoli wyświetlić całą mapę, ale strona będzie bardzo zasoborzerna");
+                    if (confirmLoad) {
+                        this.loadWebPEnabled = true;
+                        this.toggleButton.textContent = '🔓';
+                        this.loadWebP(); // Załaduj WebP po potwierdzeniu
+                    }
+                } else {
+                    this.loadWebPEnabled = false;
+                    this.toggleButton.textContent = '🔒';
+                    // Czyść WebP z pamięci
+                    this.images.webp.forEach(img => img.src = '');
+                    this.images.webp.clear();
+                    this.needsRedraw = true;
+                    // Sugeruj garbage collection
+                    if (window.gc) window.gc();
+                }
+            }
+
+            resizeCanvas() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                this.canvas.style.width = window.innerWidth + 'px';
+                this.canvas.style.height = window.innerHeight + 'px';
+                this.canvas.style.imageRendering = 'pixelated'; // Ostrość pikseli
+                this.needsRedraw = true;
+            }
+
             centerOnStyk() {
-                this.posX = window.innerWidth / 2;
-                this.posY = window.innerHeight / 2;
+                this.posX = this.canvas.width / 2;
+                this.posY = this.canvas.height / 2;
                 this.lastPosX = this.posX;
                 this.lastPosY = this.posY;
             }
@@ -150,7 +223,7 @@
                 this.container.addEventListener('wheel', (e) => {
                     e.preventDefault();
                     const delta = e.deltaY < 0 ? 0.1 : -0.1;
-                    const rect = this.container.getBoundingClientRect();
+                    const rect = this.canvas.getBoundingClientRect();
                     const mouseX = e.clientX - rect.left;
                     const mouseY = e.clientY - rect.top;
                     this.setZoom(this.zoom + delta, mouseX, mouseY);
@@ -158,15 +231,17 @@
 
                 this.container.addEventListener('mousedown', (e) => {
                     this.dragging = true;
-                    this.startX = e.clientX - this.posX;
-                    this.startY = e.clientY - this.posY;
+                    this.startX = e.clientX;
+                    this.startY = e.clientY;
                     this.container.style.cursor = 'grabbing';
                 });
 
                 document.addEventListener('mousemove', (e) => {
                     if (this.dragging) {
-                        this.posX = e.clientX - this.startX;
-                        this.posY = e.clientY - this.startY;
+                        this.posX += e.clientX - this.startX;
+                        this.startX = e.clientX;
+                        this.posY += e.clientY - this.startY;
+                        this.startY = e.clientY;
                         this.clampPosition();
                         this.needsRedraw = true;
                     }
@@ -176,22 +251,15 @@
                     this.dragging = false;
                     this.container.style.cursor = 'grab';
                 });
-
-                window.addEventListener('resize', () => {
-                    this.needsRedraw = true;
-                    this.render();
-                });
             }
 
-            setZoom(newZoom, centerX = window.innerWidth / 2, centerY = window.innerHeight / 2) {
-                // Zaokrąglij zoom dla ostrości
-                newZoom = Math.round(newZoom * 10) / 10; // Do 1 miejsca po przecinku
+            setZoom(newZoom, centerX = this.canvas.width / 2, centerY = this.canvas.height / 2) {
                 newZoom = Math.max(minZoom, Math.min(maxZoom, newZoom));
-                const dx = (centerX - this.posX) / this.zoom;
-                const dy = (centerY - this.posY) / this.zoom;
+                const worldX = (centerX - this.posX) / this.zoom;
+                const worldY = (centerY - this.posY) / this.zoom;
                 this.zoom = newZoom;
-                this.posX = centerX - dx * this.zoom;
-                this.posY = centerY - dy * this.zoom;
+                this.posX = centerX - worldX * this.zoom;
+                this.posY = centerY - worldY * this.zoom;
                 this.clampPosition();
                 this.needsRedraw = true;
             }
@@ -213,101 +281,28 @@
 
             clampPosition() {
                 const { minX, maxX, minY, maxY } = this.getMapBounds();
-                const viewWidth = window.innerWidth / this.zoom;
-                const viewHeight = window.innerHeight / this.zoom;
+                const viewWidth = this.canvas.width / this.zoom;
+                const viewHeight = this.canvas.height / this.zoom;
 
                 // Oblicz granice, aby co najmniej 1 px mapy był widoczny
                 const minPosX = -(maxX * this.zoom - 1);
-                const maxPosX = window.innerWidth - (minX * this.zoom + 1);
+                const maxPosX = this.canvas.width - (minX * this.zoom + 1);
                 const minPosY = -(maxY * this.zoom - 1);
-                const maxPosY = window.innerHeight - (minY * this.zoom + 1);
+                const maxPosY = this.canvas.height - (minY * this.zoom + 1);
 
                 this.posX = Math.max(minPosX, Math.min(maxPosX, this.posX));
                 this.posY = Math.max(minPosY, Math.min(maxPosY, this.posY));
             }
 
-            getVisibleTiles(isWebP = false) {
-                const size = isWebP ? WEBP_SIZE : PNG_SIZE;
-                const viewWidth = window.innerWidth / this.zoom;
-                const viewHeight = window.innerHeight / this.zoom;
+            isVisible(x, y, width, height) {
+                const viewWidth = this.canvas.width / this.zoom;
+                const viewHeight = this.canvas.height / this.zoom;
                 const viewLeft = -this.posX / this.zoom;
                 const viewRight = viewLeft + viewWidth;
                 const viewTop = -this.posY / this.zoom;
                 const viewBottom = viewTop + viewHeight;
 
-                return tiles.filter(key => {
-                    const [x, y] = key.split(',');
-                    const posX = parseCoord(x, isWebP);
-                    const posY = parseCoord(y, isWebP);
-                    return posX < viewRight && posX + size > viewLeft && posY < viewBottom && posY + size > viewTop;
-                });
-            }
-
-            loadWebP() {
-                if (this.loadWebPEnabled) {
-                    // Ładuj WebP sekwencyjnie
-                    const loadWebPSequentially = (index = 0) => {
-                        if (index >= tiles.length) {
-                            this.needsRedraw = true;
-                            this.render();
-                            return;
-                        }
-                        const key = tiles[index];
-                        const [x, y] = key.split(',');
-                        const imageUrl = `${imagePath}${key}.webp`;
-                        const tile = document.createElement('img');
-                        tile.className = 'tile';
-                        tile.style.width = `${WEBP_SIZE}px`;
-                        tile.style.height = `${WEBP_SIZE}px`;
-                        tile.src = imageUrl;
-                        tile.onload = () => {
-                            if (tile.complete && tile.naturalWidth > 0) {
-                                this.tiles.webp.set(key, tile);
-                                this.needsRedraw = true;
-                                this.render();
-                            }
-                            loadWebPSequentially(index + 1); // Ładuj kolejny
-                        };
-                        tile.onerror = () => {
-                            console.error(`Nie udało się załadować ${imageUrl}`);
-                            tile.remove();
-                            this.tiles.webp.delete(key);
-                            loadWebPSequentially(index + 1); // Kontynuuj mimo błędu
-                        };
-                        const posX = parseCoord(x, true);
-                        const posY = parseCoord(y, true);
-                        tile.style.left = `${posX}px`;
-                        tile.style.top = `${posY}px`;
-                        tile.style.display = 'none'; // Początkowo niewidoczny
-                        this.mapElement.appendChild(tile);
-                        this.tiles.webp.set(key, tile);
-                    };
-                    loadWebPSequentially();
-                }
-            }
-
-            toggleWebP() {
-                if (!this.loadWebPEnabled) {
-                    const confirmLoad = confirm("Włączenie tej funkcji pozwoli wyświetlić całą mapę, ale strona będzie bardzo zasoborzerna");
-                    if (confirmLoad) {
-                        this.loadWebPEnabled = true;
-                        this.toggleButton.textContent = '🔓';
-                        this.loadWebP();
-                    }
-                } else {
-                    this.loadWebPEnabled = false;
-                    this.toggleButton.textContent = '🔒';
-                    // Czyść WebP z pamięci
-                    this.tiles.webp.forEach(tile => {
-                        tile.src = '';
-                        tile.remove();
-                    });
-                    this.tiles.webp.clear();
-                    this.needsRedraw = true;
-                    this.render();
-                    // Sugeruj garbage collection
-                    if (window.gc) window.gc();
-                }
+                return x < viewRight && x + width > viewLeft && y < viewBottom && y + height > viewTop;
             }
 
             render() {
@@ -321,99 +316,47 @@
                 this.lastPosY = this.posY;
                 this.lastZoom = this.zoom;
 
-                // Zaokrąglij pozycje translate dla ostrości
-                const pixelPerfectX = Math.round(this.posX);
-                const pixelPerfectY = Math.round(this.posY);
-                this.mapElement.style.transform = `translate(${pixelPerfectX}px, ${pixelPerfectY}px) scale(${this.zoom})`;
+                console.log(`Rendering: posX=${this.posX}, posY=${this.posY}, zoom=${this.zoom}`);
 
-                console.log(`Rendering: posX=${pixelPerfectX}, posY=${pixelPerfectY}, zoom=${this.zoom}`);
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                this.ctx.save();
+                // Precyzyjne zaokrąglanie dla ostrości pikseli
+                this.ctx.translate(Math.round(this.posX), Math.round(this.posY));
+                this.ctx.scale(this.zoom, this.zoom);
 
-                const visiblePNGTiles = this.getVisibleTiles(false);
-                const visibleWebPTiles = this.loadWebPEnabled ? this.getVisibleTiles(true) : [];
-                const currentPNGKeys = new Set();
-                const currentWebPKeys = new Set();
-
-                // Rysuj PNG
-                let pngCount = 0;
-                visiblePNGTiles.forEach(key => {
-                    const [x, y] = key.split(',');
-                    currentPNGKeys.add(key);
-                    if (!this.tiles.png.has(key)) {
-                        const imageUrl = `${imagePath}${key}.png`;
-                        const tile = document.createElement('img');
-                        tile.className = 'tile';
-                        tile.style.width = `${PNG_SIZE}px`;
-                        tile.style.height = `${PNG_SIZE}px`;
-                        tile.src = imageUrl;
-                        tile.onload = () => {
-                            if (tile.complete && tile.naturalWidth > 0) {
-                                this.needsRedraw = true;
-                                this.render(); // Odśwież po załadowaniu
-                            }
-                        };
-                        tile.onerror = () => {
-                            console.error(`Nie udało się załadować ${imageUrl}`);
-                            tile.remove();
-                            this.tiles.png.delete(key);
-                        };
-                        const posX = parseCoord(x, false);
-                        const posY = parseCoord(y, false);
-                        tile.style.left = `${posX}px`;
-                        tile.style.top = `${posY}px`;
-                        tile.style.display = 'block';
-                        console.log(`PNG ${key}: left=${posX}px, top=${posY}px`);
-                        this.mapElement.appendChild(tile);
-                        this.tiles.png.set(key, tile);
-                    } else {
-                        const tile = this.tiles.png.get(key);
-                        if (tile.complete && tile.naturalWidth > 0) {
-                            tile.style.display = 'block';
-                            pngCount++;
-                        }
-                    }
-                });
-
-                // Rysuj WebP
+                // Rysuj warstwę WebP jeśli włączone
                 let webpCount = 0;
                 if (this.loadWebPEnabled) {
-                    visibleWebPTiles.forEach(key => {
+                    tiles.forEach(key => {
                         const [x, y] = key.split(',');
-                        currentWebPKeys.add(key);
-                        if (this.tiles.webp.has(key)) {
-                            const tile = this.tiles.webp.get(key);
-                            const posX = parseCoord(x, true);
-                            const posY = parseCoord(y, true);
-                            tile.style.left = `${posX}px`;
-                            tile.style.top = `${posY}px`;
-                            if (tile.complete && tile.naturalWidth > 0) {
-                                tile.style.display = 'block';
-                                console.log(`WebP ${key}: left=${posX}px, top=${posY}px`);
-                                webpCount++;
-                            } else {
-                                tile.style.display = 'none';
-                            }
-                            if (!tile.parentElement) {
-                                this.mapElement.appendChild(tile);
-                            }
+                        const img = this.images.webp.get(key);
+                        const posX = parseCoord(x, true);
+                        const posY = parseCoord(y, true);
+                        if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, WEBP_SIZE, WEBP_SIZE)) {
+                            this.ctx.drawImage(img, Math.round(posX), Math.round(posY), WEBP_SIZE, WEBP_SIZE);
+                            webpCount++;
+                            console.log(`WebP ${key}: (${posX}, ${posY})`);
                         }
                     });
                 }
 
-                // Ukryj niewidoczne kafelki PNG
-                this.tiles.png.forEach((tile, key) => {
-                    if (!currentPNGKeys.has(key)) {
-                        tile.style.display = 'none';
+                // Rysuj warstwę PNG
+                let pngCount = 0;
+                tiles.forEach(key => {
+                    const [x, y] = key.split(',');
+                    const img = this.images.png.get(key);
+                    const posX = parseCoord(x, false);
+                    const posY = parseCoord(y, false);
+                    if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, PNG_SIZE, PNG_SIZE)) {
+                        this.ctx.drawImage(img, Math.round(posX), Math.round(posY), PNG_SIZE, PNG_SIZE);
+                        pngCount++;
+                        console.log(`PNG ${key}: (${posX}, ${posY})`);
                     }
                 });
 
-                // Ukryj niewidoczne kafelki WebP
-                this.tiles.webp.forEach((tile, key) => {
-                    if (!currentWebPKeys.has(key)) {
-                        tile.style.display = 'none';
-                    }
-                });
+                console.log(`Rendered ${webpCount} WebP, ${pngCount} PNG`);
 
-                console.log(`Rendered ${webpCount} WebP, ${pngCount} PNG, Visible WebP: ${visibleWebPTiles.length}, Visible PNG: ${visiblePNGTiles.length}`);
+                this.ctx.restore();
 
                 // Kontynuuj renderowanie
                 requestAnimationFrame(() => this.render());
