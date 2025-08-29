@@ -25,6 +25,8 @@
             top: 0;
             left: 0;
             image-rendering: pixelated; /* Dodatkowe wsparcie dla ostrości */
+            image-rendering: -moz-crisp-edges; /* Firefox */
+            image-rendering: -webkit-crisp-edges; /* Safari */
         }
         #zoom-controls {
             position: absolute;
@@ -102,6 +104,7 @@
                 this.ctx.mozImageSmoothingEnabled = false; // Firefox
                 this.ctx.webkitImageSmoothingEnabled = false; // Safari
                 this.ctx.msImageSmoothingEnabled = false; // IE
+                this.ctx.imageSmoothingQuality = 'low'; // Dodatkowa ostrość
                 this.images = { png: new Map(), webp: new Map() }; // Cache obrazów
                 this.loadWebPEnabled = false; // Domyślnie wyłączone ładowanie WebP
                 this.zoom = 1;
@@ -111,6 +114,9 @@
                 this.startX = 0;
                 this.startY = 0;
                 this.needsRedraw = true; // Flaga do kontroli redraw
+                this.lastPosX = 0;
+                this.lastPosY = 0;
+                this.lastZoom = 1;
 
                 // Ustaw rozmiar canvas
                 this.resizeCanvas();
@@ -134,12 +140,14 @@
             }
 
             loadImages() {
-                // Ładuj PNG zawsze
                 tiles.forEach(key => {
                     const [x, y] = key.split(',');
                     const img = new Image();
                     img.src = `${imagePath}${key}.png`;
-                    img.onload = () => this.needsRedraw = true;
+                    img.onload = () => {
+                        this.needsRedraw = true;
+                        this.render(); // Odśwież po załadowaniu
+                    };
                     img.onerror = () => {
                         console.error(`Nie udało się załadować ${img.src}`);
                     };
@@ -151,7 +159,11 @@
                 if (this.loadWebPEnabled) {
                     // Ładuj WebP sekwencyjnie
                     const loadWebPSequentially = (index = 0) => {
-                        if (index >= tiles.length) return;
+                        if (index >= tiles.length) {
+                            this.needsRedraw = true;
+                            this.render();
+                            return;
+                        }
                         const key = tiles[index];
                         const [x, y] = key.split(',');
                         const img = new Image();
@@ -159,6 +171,7 @@
                         img.onload = () => {
                             this.images.webp.set(key, img);
                             this.needsRedraw = true;
+                            this.render();
                             loadWebPSequentially(index + 1); // Ładuj kolejny
                         };
                         img.onerror = () => {
@@ -184,19 +197,27 @@
                     this.images.webp.clear(); // Wyczyść cache WebP
                     this.needsRedraw = true;
                     this.render();
+                    // Sugeruj garbage collection
+                    if (window.gc) window.gc();
                 }
             }
 
             resizeCanvas() {
-                this.canvas.width = window.innerWidth;
-                this.canvas.height = window.innerHeight;
-                this.canvas.style.imageRendering = 'pixelated'; // Dodatkowe wsparcie dla ostrości
+                const pixelRatio = window.devicePixelRatio || 1;
+                this.canvas.width = window.innerWidth * pixelRatio;
+                this.canvas.height = window.innerHeight * pixelRatio;
+                this.canvas.style.width = window.innerWidth + 'px';
+                this.canvas.style.height = window.innerHeight + 'px';
+                this.ctx.imageSmoothingEnabled = false; // Powtórz dla pewności
+                this.ctx.imageSmoothingQuality = 'low';
                 this.needsRedraw = true;
             }
 
             centerOnStyk() {
                 this.posX = this.canvas.width / 2;
                 this.posY = this.canvas.height / 2;
+                this.lastPosX = this.posX;
+                this.lastPosY = this.posY;
             }
 
             setupEvents() {
@@ -241,6 +262,12 @@
             }
 
             setZoom(newZoom, centerX = this.canvas.width / 2, centerY = this.canvas.height / 2) {
+                // Ogranicz zoom do całkowitych wartości dla dużych powiększeń
+                if (newZoom > 1) {
+                    newZoom = Math.round(newZoom); // Całkowite wartości dla zoom > 1
+                } else {
+                    newZoom = Math.round(newZoom * 10) / 10; // 1 miejsce po przecinku dla zoom <= 1
+                }
                 newZoom = Math.max(minZoom, Math.min(maxZoom, newZoom));
                 const worldX = (centerX - this.posX) / this.zoom;
                 const worldY = (centerY - this.posY) / this.zoom;
@@ -293,20 +320,35 @@
             }
 
             render() {
-                if (!this.needsRedraw) {
+                if (!this.needsRedraw && this.posX === this.lastPosX && this.posY === this.lastPosY && this.zoom === this.lastZoom) {
                     requestAnimationFrame(() => this.render());
                     return;
                 }
 
+                const renderStart = performance.now();
+
                 this.needsRedraw = false;
+                this.lastPosX = this.posX;
+                this.lastPosY = this.posY;
+                this.lastZoom = this.zoom;
+
+                const pixelRatio = window.devicePixelRatio || 1;
                 this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
                 this.ctx.save();
-                // Zaokrąglanie pozycji dla ostrości pikseli
-                const pixelRatio = window.devicePixelRatio || 1;
-                this.ctx.translate(Math.round(this.posX * pixelRatio) / pixelRatio, Math.round(this.posY * pixelRatio) / pixelRatio);
+                // Precyzyjne zaokrąglanie dla ostrości
+                const pixelPerfectX = Math.round(this.posX * this.zoom * pixelRatio) / (this.zoom * pixelRatio);
+                const pixelPerfectY = Math.round(this.posY * this.zoom * pixelRatio) / (this.zoom * pixelRatio);
+                this.ctx.translate(pixelPerfectX, pixelPerfectY);
                 this.ctx.scale(this.zoom, this.zoom);
 
+                // Powtórz ustawienia ostrości przed każdym drawImage
+                this.ctx.imageSmoothingEnabled = false;
+                this.ctx.imageSmoothingQuality = 'low';
+
+                console.log(`Rendering: posX=${pixelPerfectX}, posY=${pixelPerfectY}, zoom=${this.zoom}, pixelRatio=${pixelRatio}`);
+
                 // Rysuj warstwę WebP jeśli włączone
+                let webpCount = 0;
                 if (this.loadWebPEnabled) {
                     tiles.forEach(key => {
                         const [x, y] = key.split(',');
@@ -314,25 +356,37 @@
                         const posX = parseCoord(x, true);
                         const posY = parseCoord(y, true);
                         if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, WEBP_SIZE, WEBP_SIZE)) {
-                            this.ctx.drawImage(img, Math.round(posX), Math.round(posY), WEBP_SIZE, WEBP_SIZE);
+                            const pixelPerfectPosX = Math.round(posX * this.zoom * pixelRatio) / (this.zoom * pixelRatio);
+                            const pixelPerfectPosY = Math.round(posY * this.zoom * pixelRatio) / (this.zoom * pixelRatio);
+                            this.ctx.drawImage(img, pixelPerfectPosX, pixelPerfectPosY, WEBP_SIZE, WEBP_SIZE);
+                            webpCount++;
+                            console.log(`WebP ${key}: posX=${pixelPerfectPosX}, posY=${pixelPerfectPosY}`);
                         }
                     });
                 }
 
                 // Rysuj warstwę PNG
+                let pngCount = 0;
                 tiles.forEach(key => {
                     const [x, y] = key.split(',');
                     const img = this.images.png.get(key);
                     const posX = parseCoord(x, false);
                     const posY = parseCoord(y, false);
                     if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, PNG_SIZE, PNG_SIZE)) {
-                        this.ctx.drawImage(img, Math.round(posX), Math.round(posY), PNG_SIZE, PNG_SIZE);
+                        const pixelPerfectPosX = Math.round(posX * this.zoom * pixelRatio) / (this.zoom * pixelRatio);
+                        const pixelPerfectPosY = Math.round(posY * this.zoom * pixelRatio) / (this.zoom * pixelRatio);
+                        this.ctx.drawImage(img, pixelPerfectPosX, pixelPerfectPosY, PNG_SIZE, PNG_SIZE);
+                        pngCount++;
+                        console.log(`PNG ${key}: posX=${pixelPerfectPosX}, posY=${pixelPerfectPosY}`);
                     }
                 });
 
                 this.ctx.restore();
 
-                // Kontynuuj renderowanie z requestAnimationFrame
+                const renderTime = performance.now() - renderStart;
+                console.log(`Rendered ${webpCount} WebP, ${pngCount} PNG, Render time: ${renderTime.toFixed(2)}ms`);
+
+                // Kontynuuj renderowanie
                 requestAnimationFrame(() => this.render());
             }
         }
