@@ -59,7 +59,6 @@
         const TILE_SIZE = 2000;
         const imagePath = 'kafelki/';
         const centralTiles = ['0,0', '0,-0', '-0,0', '-0,-0'];
-        const resLevels = [250, 500, 1000, 2000];
         const minZoom = 0.1;
         const maxZoom = 5;
 
@@ -73,14 +72,6 @@
         // Generowanie klucza dla kafelka
         function getTileKey(x, y) {
             return `${x},${y}`;
-        }
-
-        // Pobierz poziom rozdzielczości na podstawie zoom
-        function getLevel(zoom) {
-            if (zoom < 0.25) return 0; // 250
-            if (zoom < 0.5) return 1; // 500
-            if (zoom < 1) return 2; // 1000
-            return 3; // 2000
         }
 
         // Funkcja do debouncing
@@ -98,7 +89,7 @@
                 this.canvas = document.getElementById('map');
                 this.ctx = this.canvas.getContext('2d');
                 this.ctx.imageSmoothingEnabled = false; // Ostre piksele
-                this.tiles = new Map(); // key_level => Image
+                this.tiles = new Map(); // key => Image
                 this.zoom = 1;
                 this.posX = 0;
                 this.posY = 0;
@@ -173,21 +164,21 @@
 
             setZoom(newZoom, centerX = this.canvas.width / 2, centerY = this.canvas.height / 2) {
                 newZoom = Math.max(minZoom, Math.min(maxZoom, newZoom));
-                const dx = centerX - this.posX;
-                const dy = centerY - this.posY;
+                const worldX = (centerX - this.posX) / this.zoom;
+                const worldY = (centerY - this.posY) / this.zoom;
                 this.zoom = newZoom;
-                this.posX = centerX - dx * (newZoom / this.zoom); // Poprawka na przeskoki
-                this.posY = centerY - dy * (newZoom / this.zoom);
+                this.posX = centerX - worldX * this.zoom;
+                this.posY = centerY - worldY * this.zoom;
                 this.render();
             }
 
             getVisibleTiles() {
                 const viewWidth = this.canvas.width / this.zoom;
                 const viewHeight = this.canvas.height / this.zoom;
-                const minX = Math.floor(( -this.posX / this.zoom) - viewWidth / 2 / TILE_SIZE) - 1;
-                const maxX = Math.ceil(( -this.posX / this.zoom) + viewWidth / 2 / TILE_SIZE) + 1;
-                const minY = Math.floor(( -this.posY / this.zoom) - viewHeight / 2 / TILE_SIZE) - 1;
-                const maxY = Math.ceil(( -this.posY / this.zoom) + viewHeight / 2 / TILE_SIZE) + 1;
+                const minX = Math.floor((-this.posX / this.zoom - viewWidth / 2) / TILE_SIZE) - 1;
+                const maxX = Math.ceil((-this.posX / this.zoom + viewWidth / 2) / TILE_SIZE) + 1;
+                const minY = Math.floor((-this.posY / this.zoom - viewHeight / 2) / TILE_SIZE) - 1;
+                const maxY = Math.ceil((-this.posY / this.zoom + viewHeight / 2) / TILE_SIZE) + 1;
 
                 const coordValues = [];
                 for (let i = Math.max(minX, -2); i <= Math.min(maxX, 2); i++) {
@@ -200,17 +191,23 @@
                 return coordValues.flatMap(x => coordValues.map(y => ({ x, y })));
             }
 
-            getTileImage(x, y, level) {
-                const key = getTileKey(x, y) + '_' + level;
+            getTileImage(x, y) {
+                const key = getTileKey(x, y);
                 if (!this.tiles.has(key)) {
-                    const isCentral = centralTiles.includes(getTileKey(x, y));
-                    const size = resLevels[level];
+                    const isCentral = centralTiles.includes(key);
                     const ext = isCentral ? 'png' : 'webp';
-                    const imageUrl = `${imagePath}${getTileKey(x, y)}_${size}.${ext}`;
+                    const imageUrl = `${imagePath}${key}.${ext}`;
                     const img = new Image();
                     img.src = imageUrl;
                     img.onerror = () => {
-                        this.tiles.delete(key); // Usuń jeśli nie istnieje
+                        if (isCentral) {
+                            img.src = `${imagePath}${key}.webp`; // Fallback WebP dla centralnych
+                            img.onerror = () => {
+                                this.tiles.delete(key);
+                            };
+                        } else {
+                            this.tiles.delete(key);
+                        }
                     };
                     this.tiles.set(key, img);
                 }
@@ -224,25 +221,14 @@
                 this.ctx.scale(this.zoom, this.zoom);
 
                 const visibleTiles = this.getVisibleTiles();
-                const currentLevel = getLevel(this.zoom);
+                const scaledTileSize = TILE_SIZE * this.zoom;
 
                 visibleTiles.forEach(({ x, y }) => {
-                    let img = this.getTileImage(x, y, currentLevel);
-                    if (img && img.complete) {
+                    const img = this.getTileImage(x, y);
+                    if (img && img.complete && img.naturalWidth > 0) {
                         const posX = parseCoord(x) * TILE_SIZE;
                         const posY = parseCoord(y) * TILE_SIZE;
                         this.ctx.drawImage(img, posX, posY, TILE_SIZE, TILE_SIZE);
-                    } else {
-                        // Użyj niższego poziomu jeśli wyższy nie załadowany
-                        for (let l = currentLevel - 1; l >= 0; l--) {
-                            img = this.getTileImage(x, y, l);
-                            if (img && img.complete) {
-                                const posX = parseCoord(x) * TILE_SIZE;
-                                const posY = parseCoord(y) * TILE_SIZE;
-                                this.ctx.drawImage(img, posX, posY, TILE_SIZE, TILE_SIZE);
-                                break;
-                            }
-                        }
                     }
                 });
 
