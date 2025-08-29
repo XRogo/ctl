@@ -62,6 +62,19 @@
         #toggle-webp:hover {
             background-color: #666;
         }
+        #zoom-display {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            padding: 5px 10px;
+            font-size: 16px;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 4px;
+            font-family: Arial, sans-serif;
+        }
     </style>
 </head>
 <body>
@@ -73,6 +86,7 @@
         <button id="zoom-out">-</button>
     </div>
     <button id="toggle-webp">🔒</button>
+    <div id="zoom-display">Zoom: 1.0x</div>
 
     <script>
         const PNG_SIZE = 2000;
@@ -80,7 +94,7 @@
         const imagePath = 'kafelki/';
         const tiles = ['0,0', '0,-0', '-0,0', '-0,-0'];
         const minZoom = 0.1;
-        const maxZoom = 50; // Zwiększono maksymalny zoom do 50x
+        const maxZoom = 50; // Maksymalny zoom do 50x
 
         // Mapowanie stringowych współrzędnych na numeryczne pozycje
         function parseCoord(str, isWebP = false) {
@@ -117,6 +131,7 @@
                 this.lastPosX = 0;
                 this.lastPosY = 0;
                 this.lastZoom = 1;
+                this.zoomDisplay = document.getElementById('zoom-display'); // Element wyświetlający zoom
 
                 // Ustaw rozmiar canvas
                 this.resizeCanvas();
@@ -271,6 +286,8 @@
                 this.posY = centerY - worldY * this.zoom;
                 this.clampPosition();
                 this.needsRedraw = true;
+                // Aktualizuj napis z zoomem
+                this.zoomDisplay.textContent = `Zoom: ${this.zoom.toFixed(1)}x`;
             }
 
             getMapBounds() {
@@ -330,7 +347,7 @@
                 const pixelRatio = window.devicePixelRatio || 1;
                 this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
                 this.ctx.save();
-                // Precyzyjne zaokrąglanie pozycji z uwzględnieniem zoomu i pixelRatio
+                // Precyzyjne zaokrąglanie pozycji z uwzględnieniem pixelRatio
                 const pixelPerfectX = Math.round(this.posX * pixelRatio) / pixelRatio;
                 const pixelPerfectY = Math.round(this.posY * pixelRatio) / pixelRatio;
                 this.ctx.translate(pixelPerfectX, pixelPerfectY);
@@ -379,6 +396,9 @@
                 });
 
                 this.ctx.restore();
+
+                // Aktualizuj napis z zoomem
+                this.zoomDisplay.textContent = `Zoom: ${this.zoom.toFixed(1)}x`;
 
                 const renderTime = performance.now() - renderStart;
                 console.log(`Rendered ${webpCount} WebP, ${pngCount} PNG, Render time: ${renderTime.toFixed(2)}ms`);
