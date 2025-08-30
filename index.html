@@ -50,7 +50,7 @@
         }
         #category-controls {
             position: absolute;
-            top: 70px;
+            bottom: 70px;
             right: 10px;
             z-index: 10;
         }
@@ -387,6 +387,7 @@
                         throw new Error('Zmienna "polygons" nie jest zdefiniowana lub nie jest tablicą');
                     }
                     this.polygons = polygons;
+                    this.visibleCategories = { '1': true, '2': true, '3': true };
                     this.polygons.forEach(polygon => {
                         if (polygon.category && this.visibleCategories[polygon.category] === undefined) {
                             this.visibleCategories[polygon.category] = true;
@@ -410,7 +411,7 @@
                 } catch (e) {
                     console.error('Błąd ładowania pozycje.js:', e.message);
                     this.polygons = [];
-                    this.visibleCategories = {};
+                    this.visibleCategories = { '1': true, '2': true, '3': true };
                     this.updateCategoryControls();
                     this.centerOnStyk();
                     this.errorMessage.textContent = 'Nie udało się załadować danych poligonów z pozycje.js';
@@ -423,9 +424,14 @@
             updateCategoryControls() {
                 const categoryControls = document.getElementById('category-controls');
                 categoryControls.innerHTML = '';
+                const categoryNames = {
+                    '1': 'Zajęty teren',
+                    '2': 'Drogi',
+                    '3': 'Linie kolejowe'
+                };
                 Object.keys(this.visibleCategories).forEach(category => {
                     const button = document.createElement('button');
-                    button.textContent = `Toggle Category ${category}`;
+                    button.textContent = categoryNames[category] || `Kategoria ${category}`;
                     button.className = this.visibleCategories[category] ? 'active' : '';
                     button.addEventListener('click', () => {
                         this.visibleCategories[category] = !this.visibleCategories[category];
@@ -582,9 +588,8 @@
 
                     if (e.button === 2 && this.isDrawing) {
                         e.preventDefault();
-                        // Sprawdzenie, czy kliknięto blisko istniejącego punktu
                         let pointRemoved = false;
-                        const clickRadius = 5 / this.zoom; // Promień 5 pikseli w skali świata
+                        const clickRadius = 5 / this.zoom;
                         this.tempPolygon.points = this.tempPolygon.points.filter(([x, z]) => {
                             const dx = worldX - x;
                             const dz = worldZ - z;
@@ -602,12 +607,10 @@
                             return;
                         }
 
-                        // Dodanie nowego punktu, jeśli nie usunięto
                         this.tempPolygon.points.push([worldX, worldZ]);
                         this.needsRedraw = true;
                         this.render();
                     } else if (e.button === 0) {
-                        // Przesuwanie mapy lewym przyciskiem
                         this.dragging = true;
                         this.startX = e.clientX;
                         this.startY = e.clientY;
