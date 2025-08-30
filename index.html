@@ -274,17 +274,15 @@
         }
 
         function formatPolygonJSON(polygon) {
-            const points = polygon.points.map(([x, z]) => `[${x}, ${z}]`).join(',\n            ');
+            const pointsStr = JSON.stringify(polygon.points);
             return `{
-        points: [
-            ${points}
-        ],
-        lineColor: '${polygon.lineColor}',
-        fillColor: '${polygon.fillColor}',
-        closePath: ${polygon.closePath},
-        name: '${polygon.name}',
-        category: ${polygon.category}
-    },`;
+    points: ${pointsStr},
+    lineColor: '${polygon.lineColor}',
+    fillColor: '${polygon.fillColor}',
+    closePath: ${polygon.closePath},
+    name: '${polygon.name}',
+    category: ${polygon.category}
+},`;
         }
 
         class TileMap {
