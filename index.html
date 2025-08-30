@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mapa CRAFTLY</title>
+    <title>Mapa z Warstwami PNG i WebP</title>
+    <script src="pozycje.js"></script>
     <style>
         body, html {
             margin: 0;
@@ -110,6 +111,20 @@
             border-radius: 4px;
             font-family: Arial, sans-serif;
         }
+        #error-message {
+            position: absolute;
+            top: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            padding: 10px 20px;
+            font-size: 16px;
+            color: #fff;
+            background: rgba(200, 0, 0, 0.8);
+            border-radius: 4px;
+            font-family: Arial, sans-serif;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -126,6 +141,7 @@
     <button id="toggle-webp">🔒</button>
     <div id="zoom-display">Zoom: 1.0x</div>
     <div id="coord-display">X: 0, Z: 0</div>
+    <div id="error-message"></div>
 
     <script>
         const PNG_SIZE = 2000;
@@ -180,6 +196,7 @@
                 this.lastZoom = 1;
                 this.zoomDisplay = document.getElementById('zoom-display');
                 this.coordDisplay = document.getElementById('coord-display');
+                this.errorMessage = document.getElementById('error-message');
                 this.polygons = [];
                 this.visibleCategories = {};
                 this.ctrlPressed = false;
@@ -208,7 +225,8 @@
                         this.render();
                     };
                     img.onerror = () => {
-                        console.error(`Nie udało się załadować ${img.src}`);
+                        this.errorMessage.textContent = `Błąd ładowania kafelka PNG: ${key}`;
+                        this.errorMessage.style.display = 'block';
                     };
                     this.images.png.set(key, img);
                 });
@@ -233,7 +251,8 @@
                             loadWebPSequentially(index + 1);
                         };
                         img.onerror = () => {
-                            console.error(`Nie udało się załadować ${img.src}`);
+                            this.errorMessage.textContent = `Błąd ładowania kafelka WebP: ${key}`;
+                            this.errorMessage.style.display = 'block';
                             loadWebPSequentially(index + 1);
                         };
                     };
@@ -241,19 +260,12 @@
                 }
             }
 
-            async loadPositions() {
+            loadPositions() {
                 try {
-                    const response = await fetch('pozycje.js');
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}, statusText: ${response.statusText}`);
+                    if (typeof polygons === 'undefined' || !Array.isArray(polygons)) {
+                        throw new Error('Zmienna "polygons" nie jest zdefiniowana lub nie jest tablicą');
                     }
-                    const text = await response.text();
-                    let polygons = [];
-                    eval(text);
-                    this.polygons = Array.isArray(polygons) ? polygons : [];
-                    console.log('Loaded polygons:', this.polygons);
-
-                    // Inicjalizuj widoczność kategorii
+                    this.polygons = polygons;
                     this.polygons.forEach(polygon => {
                         if (polygon.category && this.visibleCategories[polygon.category] === undefined) {
                             this.visibleCategories[polygon.category] = true;
@@ -261,7 +273,6 @@
                     });
                     this.updateCategoryControls();
 
-                    // Wycentruj na pierwszym poligonie
                     if (this.polygons.length > 0 && this.polygons[0].points.length > 0) {
                         const [centerX, centerZ] = calculateCentroid(this.polygons[0].points);
                         this.posX = this.canvas.width / 2 - centerX * this.zoom;
@@ -276,11 +287,13 @@
                     this.needsRedraw = true;
                     this.render();
                 } catch (e) {
-                    console.error('Nie udało się załadować pozycje.js:', e.message);
+                    console.error('Błąd ładowania pozycje.js:', e.message);
                     this.polygons = [];
                     this.visibleCategories = {};
                     this.updateCategoryControls();
                     this.centerOnStyk();
+                    this.errorMessage.textContent = 'Nie udało się załadować danych poligonów z pozycje.js';
+                    this.errorMessage.style.display = 'block';
                     this.needsRedraw = true;
                     this.render();
                 }
@@ -417,7 +430,6 @@
                 this.clampPosition();
                 this.needsRedraw = true;
                 this.zoomDisplay.textContent = `Zoom: ${this.zoom.toFixed(1)}x`;
-                console.log(`Zoom set to: ${this.zoom}`);
             }
 
             getMapBounds() {
@@ -463,7 +475,6 @@
                     return;
                 }
 
-                const renderStart = performance.now();
                 this.needsRedraw = false;
                 this.lastPosX = this.posX;
                 this.lastPosY = this.posY;
@@ -479,9 +490,6 @@
                 this.ctx.imageSmoothingEnabled = false;
                 this.ctx.imageSmoothingQuality = 'low';
 
-                console.log(`Rendering: posX=${pixelPerfectX}, posY=${pixelPerfectY}, zoom=${this.zoom}, pixelRatio=${pixelRatio}`);
-
-                let webpCount = 0;
                 if (this.loadWebPEnabled) {
                     tiles.forEach(key => {
                         const [x, y] = key.split(',');
@@ -493,13 +501,10 @@
                             const pixelPerfectPosY = Math.round(posY * pixelRatio) / pixelRatio;
                             this.ctx.imageSmoothingEnabled = false;
                             this.ctx.drawImage(img, pixelPerfectPosX, pixelPerfectPosY, WEBP_SIZE, WEBP_SIZE);
-                            webpCount++;
-                            console.log(`WebP ${key}: posX=${pixelPerfectPosX}, posY=${pixelPerfectPosY}`);
                         }
                     });
                 }
 
-                let pngCount = 0;
                 tiles.forEach(key => {
                     const [x, y] = key.split(',');
                     const img = this.images.png.get(key);
@@ -510,8 +515,6 @@
                         const pixelPerfectPosY = Math.round(posY * pixelRatio) / pixelRatio;
                         this.ctx.imageSmoothingEnabled = false;
                         this.ctx.drawImage(img, pixelPerfectPosX, pixelPerfectPosY, PNG_SIZE, PNG_SIZE);
-                        pngCount++;
-                        console.log(`PNG ${key}: posX=${pixelPerfectPosX}, posY=${pixelPerfectPosY}`);
                     }
                 });
 
@@ -546,16 +549,11 @@
                                 this.ctx.strokeText(name, centerX, centerZ);
                                 this.ctx.fillText(name, centerX, centerZ);
                             }
-
-                            console.log(`Drawing polygon ${index}: ${points.length} points, lineColor=${lineColor}, fillColor=${fillColor}, closePath=${closePath}, name=${name}, category=${polygon.category}`);
                         }
                     });
                 }
 
                 this.ctx.restore();
-
-                const renderTime = performance.now() - renderStart;
-                console.log(`Rendered ${webpCount} WebP, ${pngCount} PNG, Render time: ${renderTime.toFixed(2)}ms`);
 
                 requestAnimationFrame(() => this.render());
             }
