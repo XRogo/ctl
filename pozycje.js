@@ -89,19 +89,33 @@ const polygons = [
         name: 'Wioska mikusierro',
         category: 1
     },
+//Wioska Neressi
+{
+        points: [
+            [25, -1010],
+            [25, -830],
+            [230, -830],
+            [230, 1010] 
+        ],
+        lineColor: 'rgba(5, 172, 149, 1)',
+        fillColor: 'rgba(5, 172, 149, 0.2)',
+        closePath: true,
+        name: 'Wioska Neressi',
+        category: 1
+    },
 //
 //pozycja testowa
     {
         points: [
-            [0, 0],
-            [700, 200],
-            [700, 400],
-            [500, 400]
+            [1000, 1100],
+            [1100, 1000],
+            [1100, 1100],
+            [1000, 1000]
         ],
-        lineColor: 'green',
-        fillColor: 'rgba(0, 255, 0, 0.7)',
+        lineColor: 'rgba(0, 255, 0, 0.43)',
+        fillColor: 'rgba(0, 255, 0, 0.43)',
         closePath: true,
-        name: 'Obszar 2',
+        name: 'obszar testowy xD',
         category: 2
     }
 
