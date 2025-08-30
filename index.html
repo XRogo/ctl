@@ -274,10 +274,10 @@
         }
 
         function formatPolygonJSON(polygon) {
-            const pointsStr = polygon.points.map(([x, z]) => `[${x}, ${z}]`).join(',\n            ');
+            const points = polygon.points.map(([x, z]) => `[${x}, ${z}]`).join(',\n            ');
             return `{
         points: [
-            ${pointsStr}
+            ${points}
         ],
         lineColor: '${polygon.lineColor}',
         fillColor: '${polygon.fillColor}',
@@ -476,6 +476,68 @@
                 this.coordDisplay.textContent = `X: 0, Z: 0`;
             }
 
+            setupPolygonForm() {
+                this.colorInput.addEventListener('input', () => {
+                    this.colorPreview.style.backgroundColor = this.colorInput.value;
+                });
+
+                this.addPolygonBtn.addEventListener('click', () => {
+                    if (this.isDrawing) {
+                        if (this.tempPolygon.points.length < 3) {
+                            this.errorMessage.textContent = 'Poligon musi mieć co najmniej 3 punkty!';
+                            this.errorMessage.style.display = 'block';
+                            setTimeout(() => { this.errorMessage.style.display = 'none'; }, 3000);
+                            return;
+                        }
+                        this.isDrawing = false;
+                        this.addPolygonBtn.textContent = '+';
+                        const polygon = {
+                            points: this.tempPolygon.points,
+                            lineColor: this.tempPolygon.lineColor,
+                            fillColor: this.tempPolygon.fillColor,
+                            closePath: true,
+                            name: this.tempPolygon.name,
+                            category: 1
+                        };
+                        this.polygons.push(polygon);
+                        if (this.visibleCategories[1] === undefined) {
+                            this.visibleCategories[1] = true;
+                            this.updateCategoryControls();
+                        }
+                        const jsonOutput = formatPolygonJSON(polygon);
+                        document.getElementById('polygon-json').value = jsonOutput;
+                        this.polygonResult.showModal();
+                        this.tempPolygon = { points: [], lineColor: 'red', fillColor: 'rgba(255, 0, 0, 0)', closePath: false, name: '' };
+                        this.needsRedraw = true;
+                        this.render();
+                    } else {
+                        this.polygonForm.showModal();
+                    }
+                });
+
+                this.polygonForm.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const name = document.getElementById('polygon-name').value.trim();
+                    const color = this.colorInput.value;
+                    if (!name) {
+                        this.errorMessage.textContent = 'Wprowadź poprawną nazwę!';
+                        this.errorMessage.style.display = 'block';
+                        setTimeout(() => { this.errorMessage.style.display = 'none'; }, 3000);
+                        return;
+                    }
+                    const [r, g, b] = hexToRgb(color);
+                    this.tempPolygon.name = name;
+                    this.tempPolygon.lineColor = `rgba(${r}, ${g}, ${b}, 1)`;
+                    this.tempPolygon.fillColor = `rgba(${r}, ${g}, ${b}, 0.2)`;
+                    this.isDrawing = true;
+                    this.addPolygonBtn.textContent = '✅';
+                    this.polygonForm.close();
+                    this.colorPreview.style.backgroundColor = '';
+                    this.needsRedraw = true;
+                    this.render();
+                });
+            }
+
             setupEvents() {
                 const zoomInBtn = document.getElementById('zoom-in');
                 const zoomOutBtn = document.getElementById('zoom-out');
@@ -514,10 +576,51 @@
                 });
 
                 this.container.addEventListener('mousedown', (e) => {
-                    this.dragging = true;
-                    this.startX = e.clientX;
-                    this.startY = e.clientY;
-                    this.container.style.cursor = 'grabbing';
+                    const rect = this.canvas.getBoundingClientRect();
+                    const mouseX = e.clientX - rect.left;
+                    const mouseY = e.clientY - rect.top;
+                    const worldX = Math.round((mouseX - this.posX) / this.zoom);
+                    const worldZ = Math.round((mouseY - this.posY) / this.zoom);
+
+                    if (e.button === 2 && this.isDrawing) {
+                        e.preventDefault();
+                        // Sprawdzenie, czy kliknięto blisko istniejącego punktu
+                        let pointRemoved = false;
+                        const clickRadius = 5 / this.zoom; // Promień 5 pikseli w skali świata
+                        this.tempPolygon.points = this.tempPolygon.points.filter(([x, z]) => {
+                            const dx = worldX - x;
+                            const dz = worldZ - z;
+                            const distance = Math.sqrt(dx * dx + dz * dz);
+                            if (distance < clickRadius) {
+                                pointRemoved = true;
+                                return false;
+                            }
+                            return true;
+                        });
+
+                        if (pointRemoved) {
+                            this.needsRedraw = true;
+                            this.render();
+                            return;
+                        }
+
+                        // Dodanie nowego punktu, jeśli nie usunięto
+                        this.tempPolygon.points.push([worldX, worldZ]);
+                        this.needsRedraw = true;
+                        this.render();
+                    } else if (e.button === 0) {
+                        // Przesuwanie mapy lewym przyciskiem
+                        this.dragging = true;
+                        this.startX = e.clientX;
+                        this.startY = e.clientY;
+                        this.container.style.cursor = 'grabbing';
+                    }
+                });
+
+                this.container.addEventListener('contextmenu', (e) => {
+                    if (this.isDrawing) {
+                        e.preventDefault();
+                    }
                 });
 
                 document.addEventListener('mousemove', (e) => {
