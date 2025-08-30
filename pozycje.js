@@ -95,7 +95,7 @@ const polygons = [
             [25, -1010],
             [25, -830],
             [230, -830],
-            [230, 1010] 
+            [230, -1010] 
         ],
         lineColor: 'rgba(5, 172, 149, 1)',
         fillColor: 'rgba(5, 172, 149, 0.2)',
@@ -103,7 +103,8 @@ const polygons = [
         name: 'Wioska Neressi',
         category: 1
     },
-//
+//baza morisa
+
 //pozycja testowa
     {
         points: [
