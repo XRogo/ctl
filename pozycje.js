@@ -199,7 +199,7 @@ const polygons = [
 //Ul. wiaduktowa
 {
     points: [[24,-49],[15,-47],[4,-47],[-6,-51],[-14,-56],[-25,-63],[-36,-73],[-42,-81],[-48,-92],[-50,-97],[-51,-103],[-51,-120],[-51,-123],[-41,-143]],
-    lineColor: 'rgba(99, 99, 99, 1)',
+    lineColor: 'rgba(99, 99, 99, 0.3)',
     fillColor: 'rgba(99, 99, 99, 0)',
     closePath: true,
     name: 'Ul. Wiaduktowa',
@@ -208,8 +208,8 @@ const polygons = [
 //ul debowa
 {
     points: [[12,52],[-11,70],[-19,74],[-23,78],[-25,82],[-29,90],[-33,93],[-40,95],[-45,90],[-48,84],[-56,78],[-64,75],[-74,72],[-80,73],[-88,77],[-90,78],[-105,78]],
-    lineColor: 'rgba(99, 99, 99, 1)',
-    fillColor: 'rgba(99, 99, 99, 0.2)',
+    lineColor: 'rgba(99, 99, 99, 0.3)',
+    fillColor: 'rgba(99, 99, 99, 0)',
     closePath: true,
     name: 'Ul. Dębowa',
     category: 2
@@ -217,8 +217,8 @@ const polygons = [
 //ilicaklifowa
 {
     points: [[67,-53],[67,-38],[68,-35],[71,-32],[74,-31],[81,-31],[83,-35],[83,-41],[82,-46],[79,-50],[75,-52],[73,-55],[71,-58],[71,-71],[50,-71],[46,-70]],
-    lineColor: 'rgba(99, 99, 99, 1)',
-    fillColor: 'rgba(99, 99, 99, 0.2)',
+    lineColor: 'rgba(99, 99, 99, 0.3)',
+    fillColor: 'rgba(99, 99, 99, 0)',
     closePath: true,
     name: 'Ul. Klifowa',
     category: 1
