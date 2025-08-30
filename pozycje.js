@@ -54,8 +54,6 @@ const polygons = [
             [985, -64],
             [1032, -80],
             [1038, -164]
-            
-            
         ],
         lineColor: '#1100faff',
         fillColor: 'rgba(0, 4, 255, 0.2)',
@@ -63,6 +61,35 @@ const polygons = [
         name: 'Farma kwiatów Maka',
         category: 1
     },
+    //glina maka
+    {
+        points: [
+            [1100, -800],
+            [1000, -900],
+            [900, -800],
+            [1000, -700] 
+        ],
+        lineColor: '#1100faff',
+        fillColor: 'rgba(0, 4, 255, 0.2)',
+        closePath: true,
+        name: 'Glina Maka',
+        category: 1
+    },
+//wiostak mikusierro
+{
+        points: [
+            [-1600, -190],
+            [-1500, -190],
+            [-1500, -120],
+            [-1600, -120] 
+        ],
+        lineColor: '#d4fa00ff',
+        fillColor: 'rgba(229, 255, 0, 0.2)',
+        closePath: true,
+        name: 'Wioska mikusierro',
+        category: 1
+    },
+//
 //pozycja testowa
     {
         points: [
