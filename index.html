@@ -148,6 +148,7 @@
                 this.zoomDisplay = document.getElementById('zoom-display'); // Element wyświetlający zoom
                 this.coordDisplay = document.getElementById('coord-display'); // Element wyświetlający współrzędne
                 this.positions = null; // Dane z pozycje.js
+                this.ctrlPressed = false; // Flaga dla klawisza Ctrl
 
                 // Ustaw rozmiar canvas
                 this.resizeCanvas();
@@ -221,13 +222,13 @@
                 try {
                     const response = await fetch('pozycje.js');
                     const text = await response.text();
-                    // Zakładam, że pozycje.js zawiera zmienną positions, lineColor, fillColor, closePath
-                    const data = eval(text); // Uwaga: eval jest niebezpieczny, ale dla lokalnego pliku OK
+                    // Zakładam, że pozycje.js zawiera zmienne positions, lineColor, fillColor, closePath
+                    eval(text);
                     this.positions = {
-                        points: data.positions,
-                        lineColor: data.lineColor || 'red',
-                        fillColor: data.fillColor || 'rgba(0, 0, 255, 0.7)',
-                        closePath: data.closePath || true
+                        points: positions,
+                        lineColor: lineColor || 'red',
+                        fillColor: fillColor || 'rgba(0, 0, 255, 0.7)',
+                        closePath: closePath || true
                     };
                     this.needsRedraw = true;
                     this.render();
@@ -441,7 +442,7 @@
                     }
                 });
 
-                // Rysuj polygon z pozycji.js
+                // Rysuj polygon z pozycji.js (po obrazach, aby był na górze)
                 if (this.positions) {
                     const { points, lineColor, fillColor, closePath } = this.positions;
                     this.ctx.beginPath();
