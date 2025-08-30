@@ -808,7 +808,7 @@
 
                 if (this.polygons && this.polygons.length > 0) {
                     this.polygons.forEach((polygon, index) => {
-                        if (this.visibleCategories[polygon.category] && polygon.points && polygon.points.length > 0 && (polygon.category !== 2 || this.zoom <= 2)) {
+                        if (this.visibleCategories[polygon.category] && polygon.points && polygon.points.length > 0 && (polygon.category !== 2 || this.zoom >= 2.9)) {
                             const { points, lineColor, fillColor, closePath, name, category } = polygon;
                             this.ctx.beginPath();
                             points.forEach((p, i) => {
