@@ -108,7 +108,7 @@
         const imagePath = 'kafelki/';
         const tiles = ['0,0', '0,-0', '-0,0', '-0,-0'];
         const minZoom = 0.1;
-        const maxZoom = 50; // Maksymalny zoom do 50x
+        const maxZoom = 50;
 
         // Mapowanie stringowych współrzędnych na numeryczne pozycje
         function parseCoord(str, isWebP = false) {
@@ -147,6 +147,7 @@
                 this.lastZoom = 1;
                 this.zoomDisplay = document.getElementById('zoom-display'); // Element wyświetlający zoom
                 this.coordDisplay = document.getElementById('coord-display'); // Element wyświetlający współrzędne
+                this.positions = null; // Dane z pozycje.js
 
                 // Ustaw rozmiar canvas
                 this.resizeCanvas();
@@ -154,6 +155,9 @@
 
                 // Ładuj PNG na starcie
                 this.loadImages();
+
+                // Ładuj dane z pozycje.js na starcie
+                this.loadPositions();
 
                 // Przycisk przełączania WebP
                 this.toggleButton = document.getElementById('toggle-webp');
@@ -213,6 +217,25 @@
                 }
             }
 
+            async loadPositions() {
+                try {
+                    const response = await fetch('pozycje.js');
+                    const text = await response.text();
+                    // Zakładam, że pozycje.js zawiera zmienną positions, lineColor, fillColor, closePath
+                    const data = eval(text); // Uwaga: eval jest niebezpieczny, ale dla lokalnego pliku OK
+                    this.positions = {
+                        points: data.positions,
+                        lineColor: data.lineColor || 'red',
+                        fillColor: data.fillColor || 'rgba(0, 0, 255, 0.7)',
+                        closePath: data.closePath || true
+                    };
+                    this.needsRedraw = true;
+                    this.render();
+                } catch (e) {
+                    console.error('Nie udało się załadować pozycje.js', e);
+                }
+            }
+
             toggleWebP() {
                 if (!this.loadWebPEnabled) {
                     const confirmLoad = confirm("Włączenie tej funkcji pozwoli wyświetlić całą mapę, ale strona będzie bardzo zasoborzerna");
@@ -262,10 +285,10 @@
 
                 this.container.addEventListener('wheel', (e) => {
                     e.preventDefault();
-                    const delta = e.deltaY < 0 ? 0.1 : -0.1;
                     const rect = this.canvas.getBoundingClientRect();
                     const mouseX = e.clientX - rect.left;
                     const mouseY = e.clientY - rect.top;
+                    const delta = e.deltaY < 0 ? 0.1 : -0.1;
                     this.setZoom(this.zoom + delta, mouseX, mouseY);
                 });
 
@@ -301,7 +324,6 @@
             }
 
             setZoom(newZoom, centerX = this.canvas.width / 2, centerY = this.canvas.height / 2) {
-                // Płynny zoom, bez ograniczenia do całkowitych wartości
                 newZoom = Math.max(minZoom, Math.min(maxZoom, newZoom));
                 const worldX = (centerX - this.posX) / this.zoom;
                 const worldY = (centerY - this.posY) / this.zoom;
@@ -418,6 +440,25 @@
                         console.log(`PNG ${key}: posX=${pixelPerfectPosX}, posY=${pixelPerfectPosY}`);
                     }
                 });
+
+                // Rysuj polygon z pozycji.js
+                if (this.positions) {
+                    const { points, lineColor, fillColor, closePath } = this.positions;
+                    this.ctx.beginPath();
+                    points.forEach((p, i) => {
+                        const [x, z] = p;
+                        if (i === 0) {
+                            this.ctx.moveTo(x, z);
+                        } else {
+                            this.ctx.lineTo(x, z);
+                        }
+                    });
+                    if (closePath) this.ctx.closePath();
+                    this.ctx.fillStyle = fillColor;
+                    this.ctx.fill();
+                    this.ctx.strokeStyle = lineColor;
+                    this.ctx.stroke();
+                }
 
                 this.ctx.restore();
 
