@@ -1,4 +1,5 @@
 const polygons = [
+// pozycja terne zamek xrogo
     {
         points: [
             [-480, 100],
@@ -22,9 +23,10 @@ const polygons = [
         name: 'XRogo',
         category: 1
     },
+//pozycja testowa
     {
         points: [
-            [500, 200],
+            [0, 0],
             [700, 200],
             [700, 400],
             [500, 400]
@@ -35,4 +37,5 @@ const polygons = [
         name: 'Obszar 2',
         category: 2
     }
+
 ];
