@@ -108,7 +108,7 @@
         const imagePath = 'kafelki/';
         const tiles = ['0,0', '0,-0', '-0,0', '-0,-0'];
         const minZoom = 0.1;
-        const maxZoom = 50; // Maksymalny zoom do 50x
+        const maxZoom = 50;
 
         // Mapowanie stringowych współrzędnych na numeryczne pozycje
         function parseCoord(str, isWebP = false) {
@@ -221,14 +221,19 @@
             async loadPositions() {
                 try {
                     const response = await fetch('pozycje.js');
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                     const text = await response.text();
                     // Wykonaj tekst jako JS
-                    eval(text);
+                    const positions = []; // Tymczasowa zmienna do przechwytywania danych
+                    const lineColor = 'red';
+                    const fillColor = 'rgba(0, 0, 255, 0.7)';
+                    let closePath = true;
+                    eval(text); // Zakładamy, że positions, lineColor, fillColor, closePath są zdefiniowane
                     this.positions = {
-                        points: positions,
+                        points: positions || [],
                         lineColor: lineColor || 'red',
                         fillColor: fillColor || 'rgba(0, 0, 255, 0.7)',
-                        closePath: closePath || true
+                        closePath: closePath !== undefined ? closePath : true
                     };
                     console.log('Loaded positions:', this.positions);
                     this.needsRedraw = true;
@@ -283,13 +288,15 @@
 
                 // Obsługa klawisza Ctrl
                 document.addEventListener('keydown', (e) => {
-                    if (e.ctrlKey) {
+                    if (e.key === 'Control') {
                         this.ctrlPressed = true;
+                        console.log('Ctrl pressed:', this.ctrlPressed);
                     }
                 });
                 document.addEventListener('keyup', (e) => {
-                    if (e.ctrlKey) {
+                    if (e.key === 'Control') {
                         this.ctrlPressed = false;
+                        console.log('Ctrl released:', this.ctrlPressed);
                     }
                 });
 
@@ -355,6 +362,7 @@
                 this.needsRedraw = true;
                 // Aktualizuj napis z zoomem
                 this.zoomDisplay.textContent = `Zoom: ${this.zoom.toFixed(1)}x`;
+                console.log(`Zoom set to: ${this.zoom}`);
             }
 
             getMapBounds() {
@@ -463,7 +471,7 @@
                 });
 
                 // Rysuj polygon z pozycji.js
-                if (this.positions) {
+                if (this.positions && this.positions.points && this.positions.points.length > 0) {
                     const { points, lineColor, fillColor, closePath } = this.positions;
                     this.ctx.beginPath();
                     points.forEach((p, i) => {
@@ -478,7 +486,9 @@
                     this.ctx.fillStyle = fillColor;
                     this.ctx.fill();
                     this.ctx.strokeStyle = lineColor;
+                    this.ctx.lineWidth = 2 / this.zoom; // Skaluj grubość linii w zależności od zoomu
                     this.ctx.stroke();
+                    console.log(`Drawing polygon: ${points.length} points, lineColor=${lineColor}, fillColor=${fillColor}, closePath=${closePath}`);
                 }
 
                 this.ctx.restore();
