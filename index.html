@@ -24,9 +24,9 @@
             position: absolute;
             top: 0;
             left: 0;
-            image-rendering: pixelated; /* Dodatkowe wsparcie dla ostrości */
-            image-rendering: -moz-crisp-edges; /* Firefox */
-            image-rendering: -webkit-crisp-edges; /* Safari */
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -webkit-crisp-edges;
         }
         #zoom-controls {
             position: absolute;
@@ -46,6 +46,28 @@
         }
         #zoom-controls button:hover {
             background-color: #666;
+        }
+        #category-controls {
+            position: absolute;
+            top: 70px;
+            right: 10px;
+            z-index: 10;
+        }
+        #category-controls button {
+            display: block;
+            margin: 5px;
+            padding: 8px;
+            font-size: 16px;
+            background-color: #444;
+            color: #fff;
+            border: none;
+            cursor: pointer;
+        }
+        #category-controls button:hover {
+            background-color: #666;
+        }
+        #category-controls button.active {
+            background-color: #007bff;
         }
         #toggle-webp {
             position: absolute;
@@ -98,6 +120,9 @@
         <button id="zoom-in">+</button>
         <button id="zoom-out">-</button>
     </div>
+    <div id="category-controls">
+        <!-- Przyciski kategorii będą generowane dynamicznie -->
+    </div>
     <button id="toggle-webp">🔒</button>
     <div id="zoom-display">Zoom: 1.0x</div>
     <div id="coord-display">X: 0, Z: 0</div>
@@ -110,7 +135,6 @@
         const minZoom = 0.1;
         const maxZoom = 50;
 
-        // Mapowanie stringowych współrzędnych na numeryczne pozycje
         function parseCoord(str, isWebP = false) {
             const size = isWebP ? WEBP_SIZE : PNG_SIZE;
             if (str === '0') return 0;
@@ -118,9 +142,18 @@
             return parseInt(str, 10) > 0 ? parseInt(str, 10) * size : (parseInt(str, 10) - 1) * size;
         }
 
-        // Generowanie klucza dla kafelka
         function getTileKey(x, y) {
             return `${x},${y}`;
+        }
+
+        function calculateCentroid(points) {
+            let xSum = 0, zSum = 0;
+            points.forEach(([x, z]) => {
+                xSum += x;
+                zSum += z;
+            });
+            const count = points.length;
+            return count > 0 ? [xSum / count, zSum / count] : [0, 0];
         }
 
         class TileMap {
@@ -128,49 +161,40 @@
                 this.container = container;
                 this.canvas = document.getElementById('map');
                 this.ctx = this.canvas.getContext('2d');
-                this.ctx.imageSmoothingEnabled = false; // Ostre piksele
-                this.ctx.mozImageSmoothingEnabled = false; // Firefox
-                this.ctx.webkitImageSmoothingEnabled = false; // Safari
-                this.ctx.msImageSmoothingEnabled = false; // IE
-                this.ctx.imageSmoothingQuality = 'low'; // Dodatkowa ostrość
-                this.images = { png: new Map(), webp: new Map() }; // Cache obrazów
-                this.loadWebPEnabled = false; // Domyślnie wyłączone ładowanie WebP
+                this.ctx.imageSmoothingEnabled = false;
+                this.ctx.mozImageSmoothingEnabled = false;
+                this.ctx.webkitImageSmoothingEnabled = false;
+                this.ctx.msImageSmoothingEnabled = false;
+                this.ctx.imageSmoothingQuality = 'low';
+                this.images = { png: new Map(), webp: new Map() };
+                this.loadWebPEnabled = false;
                 this.zoom = 1;
                 this.posX = 0;
                 this.posY = 0;
                 this.dragging = false;
                 this.startX = 0;
                 this.startY = 0;
-                this.needsRedraw = true; // Flaga do kontroli redraw
+                this.needsRedraw = true;
                 this.lastPosX = 0;
                 this.lastPosY = 0;
                 this.lastZoom = 1;
-                this.zoomDisplay = document.getElementById('zoom-display'); // Element wyświetlający zoom
-                this.coordDisplay = document.getElementById('coord-display'); // Element wyświetlający współrzędne
-                this.positions = null; // Dane z pozycje.js
-                this.ctrlPressed = false; // Flaga dla klawisza Ctrl
+                this.zoomDisplay = document.getElementById('zoom-display');
+                this.coordDisplay = document.getElementById('coord-display');
+                this.polygons = [];
+                this.visibleCategories = {};
+                this.ctrlPressed = false;
 
-                // Ustaw rozmiar canvas
                 this.resizeCanvas();
                 window.addEventListener('resize', () => this.resizeCanvas());
 
-                // Ładuj PNG na starcie
                 this.loadImages();
-
-                // Ładuj dane z pozycje.js na starcie
                 this.loadPositions();
 
-                // Przycisk przełączania WebP
                 this.toggleButton = document.getElementById('toggle-webp');
                 this.toggleButton.addEventListener('click', () => this.toggleWebP());
 
-                // Ustawiamy pozycję początkową
-                this.centerOnStyk();
-
-                // Inicjalizacja zdarzeń
                 this.setupEvents();
 
-                // Rozpocznij renderowanie
                 requestAnimationFrame(() => this.render());
             }
 
@@ -181,7 +205,7 @@
                     img.src = `${imagePath}${key}.png`;
                     img.onload = () => {
                         this.needsRedraw = true;
-                        this.render(); // Odśwież po załadowaniu
+                        this.render();
                     };
                     img.onerror = () => {
                         console.error(`Nie udało się załadować ${img.src}`);
@@ -192,7 +216,6 @@
 
             loadWebP() {
                 if (this.loadWebPEnabled) {
-                    // Ładuj WebP sekwencyjnie
                     const loadWebPSequentially = (index = 0) => {
                         if (index >= tiles.length) {
                             this.needsRedraw = true;
@@ -207,11 +230,11 @@
                             this.images.webp.set(key, img);
                             this.needsRedraw = true;
                             this.render();
-                            loadWebPSequentially(index + 1); // Ładuj kolejny
+                            loadWebPSequentially(index + 1);
                         };
                         img.onerror = () => {
                             console.error(`Nie udało się załadować ${img.src}`);
-                            loadWebPSequentially(index + 1); // Kontynuuj mimo błędu
+                            loadWebPSequentially(index + 1);
                         };
                     };
                     loadWebPSequentially();
@@ -223,24 +246,53 @@
                     const response = await fetch('pozycje.js');
                     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                     const text = await response.text();
-                    // Wykonaj tekst jako JS
-                    const positions = []; // Tymczasowa zmienna do przechwytywania danych
-                    const lineColor = 'red';
-                    const fillColor = 'rgba(0, 0, 255, 0.7)';
-                    let closePath = true;
-                    eval(text); // Zakładamy, że positions, lineColor, fillColor, closePath są zdefiniowane
-                    this.positions = {
-                        points: positions || [],
-                        lineColor: lineColor || 'red',
-                        fillColor: fillColor || 'rgba(0, 0, 255, 0.7)',
-                        closePath: closePath !== undefined ? closePath : true
-                    };
-                    console.log('Loaded positions:', this.positions);
+                    let polygons = [];
+                    eval(text);
+                    this.polygons = polygons || [];
+                    console.log('Loaded polygons:', this.polygons);
+
+                    // Inicjalizuj widoczność kategorii
+                    this.polygons.forEach(polygon => {
+                        if (polygon.category && this.visibleCategories[polygon.category] === undefined) {
+                            this.visibleCategories[polygon.category] = true;
+                        }
+                    });
+                    this.updateCategoryControls();
+
+                    // Wycentruj na pierwszym poligonie, jeśli istnieje
+                    if (this.polygons.length > 0 && this.polygons[0].points.length > 0) {
+                        const [centerX, centerZ] = calculateCentroid(this.polygons[0].points);
+                        this.posX = this.canvas.width / 2 - centerX * this.zoom;
+                        this.posY = this.canvas.height / 2 - centerZ * this.zoom;
+                        this.lastPosX = this.posX;
+                        this.lastPosY = this.posY;
+                        this.coordDisplay.textContent = `X: ${Math.round(centerX)}, Z: ${Math.round(centerZ)}`;
+                    } else {
+                        this.centerOnStyk();
+                    }
+
                     this.needsRedraw = true;
                     this.render();
                 } catch (e) {
                     console.error('Nie udało się załadować pozycje.js', e);
                 }
+            }
+
+            updateCategoryControls() {
+                const categoryControls = document.getElementById('category-controls');
+                categoryControls.innerHTML = '';
+                Object.keys(this.visibleCategories).forEach(category => {
+                    const button = document.createElement('button');
+                    button.textContent = `Toggle Category ${category}`;
+                    button.className = this.visibleCategories[category] ? 'active' : '';
+                    button.addEventListener('click', () => {
+                        this.visibleCategories[category] = !this.visibleCategories[category];
+                        button.className = this.visibleCategories[category] ? 'active' : '';
+                        this.needsRedraw = true;
+                        this.render();
+                    });
+                    categoryControls.appendChild(button);
+                });
             }
 
             toggleWebP() {
@@ -249,15 +301,14 @@
                     if (confirmLoad) {
                         this.loadWebPEnabled = true;
                         this.toggleButton.textContent = '🔓';
-                        this.loadWebP(); // Załaduj WebP po potwierdzeniu
+                        this.loadWebP();
                     }
                 } else {
                     this.loadWebPEnabled = false;
                     this.toggleButton.textContent = '🔒';
-                    this.images.webp.clear(); // Wyczyść cache WebP
+                    this.images.webp.clear();
                     this.needsRedraw = true;
                     this.render();
-                    // Sugeruj garbage collection
                     if (window.gc) window.gc();
                 }
             }
@@ -268,7 +319,7 @@
                 this.canvas.height = window.innerHeight * pixelRatio;
                 this.canvas.style.width = window.innerWidth + 'px';
                 this.canvas.style.height = window.innerHeight + 'px';
-                this.ctx.imageSmoothingEnabled = false; // Powtórz dla pewności
+                this.ctx.imageSmoothingEnabled = false;
                 this.ctx.imageSmoothingQuality = 'low';
                 this.needsRedraw = true;
             }
@@ -278,7 +329,6 @@
                 this.posY = this.canvas.height / 2;
                 this.lastPosX = this.posX;
                 this.lastPosY = this.posY;
-                // Ustaw początkowe współrzędne
                 this.coordDisplay.textContent = `X: 0, Z: 0`;
             }
 
@@ -286,7 +336,6 @@
                 const zoomInBtn = document.getElementById('zoom-in');
                 const zoomOutBtn = document.getElementById('zoom-out');
 
-                // Obsługa klawisza Ctrl
                 document.addEventListener('keydown', (e) => {
                     if (e.key === 'Control') {
                         this.ctrlPressed = true;
@@ -336,7 +385,6 @@
                         this.clampPosition();
                         this.needsRedraw = true;
                     }
-                    // Aktualizuj współrzędne przy ruchu myszki
                     const rect = this.canvas.getBoundingClientRect();
                     const mouseX = e.clientX - rect.left;
                     const mouseY = e.clientY - rect.top;
@@ -360,7 +408,6 @@
                 this.posY = centerY - worldY * this.zoom;
                 this.clampPosition();
                 this.needsRedraw = true;
-                // Aktualizuj napis z zoomem
                 this.zoomDisplay.textContent = `Zoom: ${this.zoom.toFixed(1)}x`;
                 console.log(`Zoom set to: ${this.zoom}`);
             }
@@ -384,13 +431,10 @@
                 const { minX, maxX, minY, maxY } = this.getMapBounds();
                 const viewWidth = this.canvas.width / this.zoom;
                 const viewHeight = this.canvas.height / this.zoom;
-
-                // Oblicz granice, aby co najmniej 1 px mapy był widoczny
                 const minPosX = -(maxX * this.zoom - 1);
                 const maxPosX = this.canvas.width - (minX * this.zoom + 1);
                 const minPosY = -(maxY * this.zoom - 1);
                 const maxPosY = this.canvas.height - (minY * this.zoom + 1);
-
                 this.posX = Math.max(minPosX, Math.min(maxPosX, this.posX));
                 this.posY = Math.max(minPosY, Math.min(maxPosY, this.posY));
             }
@@ -402,7 +446,6 @@
                 const viewRight = viewLeft + viewWidth;
                 const viewTop = -this.posY / this.zoom;
                 const viewBottom = viewTop + viewHeight;
-
                 return x < viewRight && x + width > viewLeft && y < viewBottom && y + height > viewTop;
             }
 
@@ -413,7 +456,6 @@
                 }
 
                 const renderStart = performance.now();
-
                 this.needsRedraw = false;
                 this.lastPosX = this.posX;
                 this.lastPosY = this.posY;
@@ -422,19 +464,15 @@
                 const pixelRatio = window.devicePixelRatio || 1;
                 this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
                 this.ctx.save();
-                // Precyzyjne zaokrąglanie pozycji z uwzględnieniem pixelRatio
                 const pixelPerfectX = Math.round(this.posX * pixelRatio) / pixelRatio;
                 const pixelPerfectY = Math.round(this.posY * pixelRatio) / pixelRatio;
                 this.ctx.translate(pixelPerfectX, pixelPerfectY);
                 this.ctx.scale(this.zoom, this.zoom);
-
-                // Powtórz ustawienia ostrości przed każdym drawImage
                 this.ctx.imageSmoothingEnabled = false;
                 this.ctx.imageSmoothingQuality = 'low';
 
                 console.log(`Rendering: posX=${pixelPerfectX}, posY=${pixelPerfectY}, zoom=${this.zoom}, pixelRatio=${pixelRatio}`);
 
-                // Rysuj warstwę WebP jeśli włączone
                 let webpCount = 0;
                 if (this.loadWebPEnabled) {
                     tiles.forEach(key => {
@@ -445,7 +483,7 @@
                         if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, WEBP_SIZE, WEBP_SIZE)) {
                             const pixelPerfectPosX = Math.round(posX * pixelRatio) / pixelRatio;
                             const pixelPerfectPosY = Math.round(posY * pixelRatio) / pixelRatio;
-                            this.ctx.imageSmoothingEnabled = false; // Powtórz dla pewności
+                            this.ctx.imageSmoothingEnabled = false;
                             this.ctx.drawImage(img, pixelPerfectPosX, pixelPerfectPosY, WEBP_SIZE, WEBP_SIZE);
                             webpCount++;
                             console.log(`WebP ${key}: posX=${pixelPerfectPosX}, posY=${pixelPerfectPosY}`);
@@ -453,7 +491,6 @@
                     });
                 }
 
-                // Rysuj warstwę PNG
                 let pngCount = 0;
                 tiles.forEach(key => {
                     const [x, y] = key.split(',');
@@ -463,32 +500,48 @@
                     if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, PNG_SIZE, PNG_SIZE)) {
                         const pixelPerfectPosX = Math.round(posX * pixelRatio) / pixelRatio;
                         const pixelPerfectPosY = Math.round(posY * pixelRatio) / pixelRatio;
-                        this.ctx.imageSmoothingEnabled = false; // Powtórz dla pewności
+                        this.ctx.imageSmoothingEnabled = false;
                         this.ctx.drawImage(img, pixelPerfectPosX, pixelPerfectPosY, PNG_SIZE, PNG_SIZE);
                         pngCount++;
                         console.log(`PNG ${key}: posX=${pixelPerfectPosX}, posY=${pixelPerfectPosY}`);
                     }
                 });
 
-                // Rysuj polygon z pozycji.js
-                if (this.positions && this.positions.points && this.positions.points.length > 0) {
-                    const { points, lineColor, fillColor, closePath } = this.positions;
-                    this.ctx.beginPath();
-                    points.forEach((p, i) => {
-                        const [x, z] = p;
-                        if (i === 0) {
-                            this.ctx.moveTo(x, z);
-                        } else {
-                            this.ctx.lineTo(x, z);
+                if (this.polygons && this.polygons.length > 0) {
+                    this.polygons.forEach((polygon, index) => {
+                        if (this.visibleCategories[polygon.category] && polygon.points && polygon.points.length > 0) {
+                            const { points, lineColor, fillColor, closePath, name } = polygon;
+                            this.ctx.beginPath();
+                            points.forEach((p, i) => {
+                                const [x, z] = p;
+                                if (i === 0) {
+                                    this.ctx.moveTo(x, z);
+                                } else {
+                                    this.ctx.lineTo(x, z);
+                                }
+                            });
+                            if (closePath) this.ctx.closePath();
+                            this.ctx.fillStyle = fillColor;
+                            this.ctx.fill();
+                            this.ctx.strokeStyle = lineColor;
+                            this.ctx.lineWidth = 2 / this.zoom;
+                            this.ctx.stroke();
+
+                            if (name) {
+                                const [centerX, centerZ] = calculateCentroid(points);
+                                this.ctx.font = `${12 / this.zoom}px Arial`;
+                                this.ctx.fillStyle = 'white';
+                                this.ctx.strokeStyle = 'black';
+                                this.ctx.lineWidth = 0.5 / this.zoom;
+                                this.ctx.textAlign = 'center';
+                                this.ctx.textBaseline = 'middle';
+                                this.ctx.strokeText(name, centerX, centerZ);
+                                this.ctx.fillText(name, centerX, centerZ);
+                            }
+
+                            console.log(`Drawing polygon ${index}: ${points.length} points, lineColor=${lineColor}, fillColor=${fillColor}, closePath=${closePath}, name=${name}, category=${polygon.category}`);
                         }
                     });
-                    if (closePath) this.ctx.closePath();
-                    this.ctx.fillStyle = fillColor;
-                    this.ctx.fill();
-                    this.ctx.strokeStyle = lineColor;
-                    this.ctx.lineWidth = 2 / this.zoom; // Skaluj grubość linii w zależności od zoomu
-                    this.ctx.stroke();
-                    console.log(`Drawing polygon: ${points.length} points, lineColor=${lineColor}, fillColor=${fillColor}, closePath=${closePath}`);
                 }
 
                 this.ctx.restore();
@@ -496,12 +549,10 @@
                 const renderTime = performance.now() - renderStart;
                 console.log(`Rendered ${webpCount} WebP, ${pngCount} PNG, Render time: ${renderTime.toFixed(2)}ms`);
 
-                // Kontynuuj renderowanie
                 requestAnimationFrame(() => this.render());
             }
         }
 
-        // Inicjalizacja
         const tileMap = new TileMap(document.getElementById('map-container'));
     </script>
 </body>
