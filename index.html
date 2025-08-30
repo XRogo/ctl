@@ -108,7 +108,7 @@
         const imagePath = 'kafelki/';
         const tiles = ['0,0', '0,-0', '-0,0', '-0,-0'];
         const minZoom = 0.1;
-        const maxZoom = 50;
+        const maxZoom = 50; // Maksymalny zoom do 50x
 
         // Mapowanie stringowych współrzędnych na numeryczne pozycje
         function parseCoord(str, isWebP = false) {
@@ -222,7 +222,7 @@
                 try {
                     const response = await fetch('pozycje.js');
                     const text = await response.text();
-                    // Zakładam, że pozycje.js zawiera zmienne positions, lineColor, fillColor, closePath
+                    // Wykonaj tekst jako JS
                     eval(text);
                     this.positions = {
                         points: positions,
@@ -230,6 +230,7 @@
                         fillColor: fillColor || 'rgba(0, 0, 255, 0.7)',
                         closePath: closePath || true
                     };
+                    console.log('Loaded positions:', this.positions);
                     this.needsRedraw = true;
                     this.render();
                 } catch (e) {
@@ -280,17 +281,36 @@
                 const zoomInBtn = document.getElementById('zoom-in');
                 const zoomOutBtn = document.getElementById('zoom-out');
 
-                zoomInBtn.addEventListener('click', () => this.setZoom(this.zoom + 0.1));
+                // Obsługa klawisza Ctrl
+                document.addEventListener('keydown', (e) => {
+                    if (e.ctrlKey) {
+                        this.ctrlPressed = true;
+                    }
+                });
+                document.addEventListener('keyup', (e) => {
+                    if (e.ctrlKey) {
+                        this.ctrlPressed = false;
+                    }
+                });
 
-                zoomOutBtn.addEventListener('click', () => this.setZoom(this.zoom - 0.1));
+                zoomInBtn.addEventListener('click', () => {
+                    const delta = this.ctrlPressed ? 1 : 0.1;
+                    this.setZoom(this.zoom + delta);
+                });
+
+                zoomOutBtn.addEventListener('click', () => {
+                    const delta = this.ctrlPressed ? 1 : 0.1;
+                    this.setZoom(this.zoom - delta);
+                });
 
                 this.container.addEventListener('wheel', (e) => {
                     e.preventDefault();
                     const rect = this.canvas.getBoundingClientRect();
                     const mouseX = e.clientX - rect.left;
                     const mouseY = e.clientY - rect.top;
-                    const delta = e.deltaY < 0 ? 0.1 : -0.1;
-                    this.setZoom(this.zoom + delta, mouseX, mouseY);
+                    const delta = e.deltaY < 0 ? 1 : -1;
+                    const zoomDelta = this.ctrlPressed ? delta : delta * 0.1;
+                    this.setZoom(this.zoom + zoomDelta, mouseX, mouseY);
                 });
 
                 this.container.addEventListener('mousedown', (e) => {
@@ -442,7 +462,7 @@
                     }
                 });
 
-                // Rysuj polygon z pozycji.js (po obrazach, aby był na górze)
+                // Rysuj polygon z pozycji.js
                 if (this.positions) {
                     const { points, lineColor, fillColor, closePath } = this.positions;
                     this.ctx.beginPath();
