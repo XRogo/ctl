@@ -184,14 +184,14 @@
             margin: 10px 5px 0;
             padding: 8px 16px;
             font-size: 16px;
-            background-color: #2d740d;
+            background-color: #297008;
             color: #fff;
             border: none;
             border-radius: 4px;
             cursor: pointer;
         }
         dialog button:hover {
-            background-color: #3e910e;
+            background-color: #3a8c0a;
         }
         dialog button.cancel {
             background-color: #666;
@@ -264,6 +264,34 @@
             });
             const count = points.length;
             return count > 0 ? [xSum / count, zSum / count] : [0, 0];
+        }
+
+        function calculateLineMidpoint(points) {
+            if (points.length < 2) return points[0] || [0, 0];
+            let totalLength = 0;
+            const lengths = [];
+            for (let i = 1; i < points.length; i++) {
+                const [x1, z1] = points[i - 1];
+                const [x2, z2] = points[i];
+                const segmentLength = Math.sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2);
+                lengths.push(segmentLength);
+                totalLength += segmentLength;
+            }
+            const halfLength = totalLength / 2;
+            let accumulatedLength = 0;
+            for (let i = 0; i < lengths.length; i++) {
+                accumulatedLength += lengths[i];
+                if (accumulatedLength >= halfLength) {
+                    const [x1, z1] = points[i];
+                    const [x2, z2] = points[i + 1];
+                    const ratio = (halfLength - (accumulatedLength - lengths[i])) / lengths[i];
+                    return [
+                        x1 + (x2 - x1) * ratio,
+                        z1 + (z2 - z1) * ratio
+                    ];
+                }
+            }
+            return points[Math.floor(points.length / 2)];
         }
 
         function hexToRgb(hex) {
@@ -748,7 +776,7 @@
                 if (this.polygons && this.polygons.length > 0) {
                     this.polygons.forEach((polygon, index) => {
                         if (this.visibleCategories[polygon.category] && polygon.points && polygon.points.length > 0) {
-                            const { points, lineColor, fillColor, closePath, name } = polygon;
+                            const { points, lineColor, fillColor, closePath, name, category } = polygon;
                             this.ctx.beginPath();
                             points.forEach((p, i) => {
                                 const [x, z] = p;
@@ -758,15 +786,17 @@
                                     this.ctx.lineTo(x, z);
                                 }
                             });
-                            if (closePath) this.ctx.closePath();
-                            this.ctx.fillStyle = fillColor;
+                            if (closePath && category === 1) {
+                                this.ctx.closePath();
+                            }
+                            this.ctx.fillStyle = category === 1 ? fillColor : 'rgba(0, 0, 0, 0)';
                             this.ctx.fill();
                             this.ctx.strokeStyle = lineColor;
                             this.ctx.lineWidth = 2 / this.zoom;
                             this.ctx.stroke();
 
                             if (name) {
-                                const [centerX, centerZ] = calculateCentroid(points);
+                                const [centerX, centerZ] = category === 1 ? calculateCentroid(points) : calculateLineMidpoint(points);
                                 this.ctx.font = `${12 / this.zoom}px Arial`;
                                 this.ctx.fillStyle = 'white';
                                 this.ctx.strokeStyle = 'black';
