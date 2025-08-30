@@ -314,7 +314,14 @@
                     const [x2, z2] = points[i + 1];
                     const dx = x2 - x1;
                     const dz = z2 - z1;
-                    return Math.atan2(dz, dx);
+                    let angle = Math.atan2(dz, dx);
+                    // Adjust angle to keep text readable (within -90° to 90°)
+                    if (angle > Math.PI / 2) {
+                        angle -= Math.PI;
+                    } else if (angle < -Math.PI / 2) {
+                        angle += Math.PI;
+                    }
+                    return angle;
                 }
             }
             return 0;
@@ -801,7 +808,7 @@
 
                 if (this.polygons && this.polygons.length > 0) {
                     this.polygons.forEach((polygon, index) => {
-                        if (this.visibleCategories[polygon.category] && polygon.points && polygon.points.length > 2 && (polygon.category !== 2 || this.zoom <= 50)) {
+                        if (this.visibleCategories[polygon.category] && polygon.points && polygon.points.length > 0 && (polygon.category !== 2 || this.zoom <= 2)) {
                             const { points, lineColor, fillColor, closePath, name, category } = polygon;
                             this.ctx.beginPath();
                             points.forEach((p, i) => {
@@ -818,10 +825,10 @@
                             this.ctx.fillStyle = category === 1 ? fillColor : 'rgba(0, 0, 0, 0)';
                             this.ctx.fill();
                             this.ctx.strokeStyle = lineColor;
-                            this.ctx.lineWidth = (category === 1) ? 2 / this.zoom : 6 / this.zoom;
+                            this.ctx.lineWidth = category === 1 ? 2 / this.zoom : (category === 2 ? 6 / this.zoom : 3 / this.zoom);
                             this.ctx.stroke();
 
-                            if (name) {
+                            if (name && (category === 1 || this.zoom > 2)) {
                                 const [centerX, centerZ] = category === 1 ? calculateCentroid(points) : calculateLineMidpoint(points);
                                 this.ctx.font = `${12 / this.zoom}px Arial`;
                                 this.ctx.fillStyle = 'white';
