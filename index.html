@@ -75,6 +75,19 @@
             border-radius: 4px;
             font-family: Arial, sans-serif;
         }
+        #coord-display {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            padding: 5px 10px;
+            font-size: 16px;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 4px;
+            font-family: Arial, sans-serif;
+        }
     </style>
 </head>
 <body>
@@ -87,6 +100,7 @@
     </div>
     <button id="toggle-webp">🔒</button>
     <div id="zoom-display">Zoom: 1.0x</div>
+    <div id="coord-display">X: 0, Z: 0</div>
 
     <script>
         const PNG_SIZE = 2000;
@@ -132,6 +146,7 @@
                 this.lastPosY = 0;
                 this.lastZoom = 1;
                 this.zoomDisplay = document.getElementById('zoom-display'); // Element wyświetlający zoom
+                this.coordDisplay = document.getElementById('coord-display'); // Element wyświetlający współrzędne
 
                 // Ustaw rozmiar canvas
                 this.resizeCanvas();
@@ -233,6 +248,8 @@
                 this.posY = this.canvas.height / 2;
                 this.lastPosX = this.posX;
                 this.lastPosY = this.posY;
+                // Ustaw początkowe współrzędne
+                this.coordDisplay.textContent = `X: 0, Z: 0`;
             }
 
             setupEvents() {
@@ -268,6 +285,13 @@
                         this.clampPosition();
                         this.needsRedraw = true;
                     }
+                    // Aktualizuj współrzędne przy ruchu myszki
+                    const rect = this.canvas.getBoundingClientRect();
+                    const mouseX = e.clientX - rect.left;
+                    const mouseY = e.clientY - rect.top;
+                    const worldX = Math.round((mouseX - this.posX) / this.zoom);
+                    const worldZ = Math.round((mouseY - this.posY) / this.zoom);
+                    this.coordDisplay.textContent = `X: ${worldX}, Z: ${worldZ}`;
                 });
 
                 document.addEventListener('mouseup', () => {
@@ -396,9 +420,6 @@
                 });
 
                 this.ctx.restore();
-
-                // Aktualizuj napis z zoomem
-                this.zoomDisplay.textContent = `Zoom: ${this.zoom.toFixed(1)}x`;
 
                 const renderTime = performance.now() - renderStart;
                 console.log(`Rendered ${webpCount} WebP, ${pngCount} PNG, Render time: ${renderTime.toFixed(2)}ms`);
