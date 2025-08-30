@@ -70,10 +70,8 @@
         #category-controls button.active {
             background-color: #297008;
         }
-        #toggle-webp {
+        #toggle-webp, #add-polygon {
             position: absolute;
-            bottom: 10px;
-            left: 10px;
             z-index: 10;
             padding: 10px;
             font-size: 20px;
@@ -82,7 +80,15 @@
             border: none;
             cursor: pointer;
         }
-        #toggle-webp:hover {
+        #toggle-webp {
+            bottom: 10px;
+            left: 10px;
+        }
+        #add-polygon {
+            top: 10px;
+            left: 10px;
+        }
+        #toggle-webp:hover, #add-polygon:hover {
             background-color: #666;
         }
         #zoom-display {
@@ -125,6 +131,67 @@
             font-family: Arial, sans-serif;
             display: none;
         }
+        dialog {
+            background-color: #333;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 20px;
+            max-width: 400px;
+            z-index: 20;
+        }
+        dialog::backdrop {
+            background: rgba(0, 0, 0, 0.7);
+        }
+        dialog label {
+            display: block;
+            margin: 10px 0 5px;
+            font-size: 16px;
+        }
+        dialog input[type="text"],
+        dialog input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            font-size: 16px;
+            background-color: #444;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+        }
+        dialog input[type="number"] {
+            width: 80px;
+            margin-right: 10px;
+        }
+        dialog textarea {
+            width: 100%;
+            height: 200px;
+            padding: 8px;
+            font-size: 14px;
+            background-color: #444;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            resize: none;
+        }
+        dialog button {
+            margin: 10px 5px 0;
+            padding: 8px 16px;
+            font-size: 16px;
+            background-color: #297008;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        dialog button:hover {
+            background-color: #3a8c0a;
+        }
+        dialog button.cancel {
+            background-color: #666;
+        }
+        dialog button.cancel:hover {
+            background-color: #888;
+        }
     </style>
 </head>
 <body>
@@ -139,9 +206,32 @@
         <!-- Przyciski kategorii będą generowane dynamicznie -->
     </div>
     <button id="toggle-webp">🔒</button>
+    <button id="add-polygon">+</button>
     <div id="zoom-display">Zoom: 1.0x</div>
     <div id="coord-display">X: 0, Z: 0</div>
     <div id="error-message"></div>
+    <dialog id="polygon-form">
+        <form>
+            <label for="polygon-name">Nazwa:</label>
+            <input type="text" id="polygon-name" required>
+            <label>Kolor (RGB):</label>
+            <div>
+                <input type="number" id="polygon-color-r" min="0" max="255" required placeholder="R">
+                <input type="number" id="polygon-color-g" min="0" max="255" required placeholder="G">
+                <input type="number" id="polygon-color-b" min="0" max="255" required placeholder="B">
+            </div>
+            <button type="submit">Dodaj</button>
+            <button type="button" class="cancel" onclick="document.getElementById('polygon-form').close()">Anuluj</button>
+        </form>
+    </dialog>
+    <dialog id="polygon-result">
+        <form>
+            <label for="polygon-json">Wygenerowany kod:</label>
+            <textarea id="polygon-json" readonly></textarea>
+            <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('polygon-json').value).then(() => alert('Skopiowano do schowka!'))">Kopiuj</button>
+            <button type="button" class="cancel" onclick="document.getElementById('polygon-result').close()">Zamknij</button>
+        </form>
+    </dialog>
 
     <script>
         const PNG_SIZE = 2000;
@@ -200,12 +290,18 @@
                 this.polygons = [];
                 this.visibleCategories = {};
                 this.ctrlPressed = false;
+                this.isDrawing = false;
+                this.tempPolygon = { points: [], lineColor: 'red', fillColor: 'rgba(255, 0, 0, 0)', closePath: false, name: '' };
+                this.polygonForm = document.getElementById('polygon-form');
+                this.polygonResult = document.getElementById('polygon-result');
+                this.addPolygonBtn = document.getElementById('add-polygon');
 
                 this.resizeCanvas();
                 window.addEventListener('resize', () => this.resizeCanvas());
 
                 this.loadImages();
                 this.loadPositions();
+                this.setupPolygonForm();
 
                 this.toggleButton = document.getElementById('toggle-webp');
                 this.toggleButton.addEventListener('click', () => this.toggleWebP());
@@ -353,6 +449,64 @@
                 this.coordDisplay.textContent = `X: 0, Z: 0`;
             }
 
+            setupPolygonForm() {
+                this.addPolygonBtn.addEventListener('click', () => {
+                    if (this.isDrawing) {
+                        if (this.tempPolygon.points.length < 3) {
+                            this.errorMessage.textContent = 'Poligon musi mieć co najmniej 3 punkty!';
+                            this.errorMessage.style.display = 'block';
+                            setTimeout(() => { this.errorMessage.style.display = 'none'; }, 3000);
+                            return;
+                        }
+                        this.isDrawing = false;
+                        this.addPolygonBtn.textContent = '+';
+                        const polygon = {
+                            points: this.tempPolygon.points,
+                            lineColor: this.tempPolygon.lineColor,
+                            fillColor: this.tempPolygon.fillColor,
+                            closePath: true,
+                            name: this.tempPolygon.name,
+                            category: 1
+                        };
+                        this.polygons.push(polygon);
+                        if (this.visibleCategories[1] === undefined) {
+                            this.visibleCategories[1] = true;
+                            this.updateCategoryControls();
+                        }
+                        const jsonOutput = JSON.stringify(polygon, null, 4) + ',';
+                        document.getElementById('polygon-json').value = jsonOutput;
+                        this.polygonResult.showModal();
+                        this.tempPolygon = { points: [], lineColor: 'red', fillColor: 'rgba(255, 0, 0, 0)', closePath: false, name: '' };
+                        this.needsRedraw = true;
+                        this.render();
+                    } else {
+                        this.polygonForm.showModal();
+                    }
+                });
+
+                this.polygonForm.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const name = document.getElementById('polygon-name').value.trim();
+                    const r = parseInt(document.getElementById('polygon-color-r').value);
+                    const g = parseInt(document.getElementById('polygon-color-g').value);
+                    const b = parseInt(document.getElementById('polygon-color-b').value);
+                    if (!name || isNaN(r) || isNaN(g) || isNaN(b) || r < 0 || r > 255 || g < 0 || g > 255 || b < 0 || b > 255) {
+                        this.errorMessage.textContent = 'Wprowadź poprawną nazwę i wartości RGB (0-255)!';
+                        this.errorMessage.style.display = 'block';
+                        setTimeout(() => { this.errorMessage.style.display = 'none'; }, 3000);
+                        return;
+                    }
+                    this.tempPolygon.name = name;
+                    this.tempPolygon.lineColor = `rgba(${r}, ${g}, ${b}, 1)`;
+                    this.tempPolygon.fillColor = `rgba(${r}, ${g}, ${b}, 0.2)`;
+                    this.isDrawing = true;
+                    this.addPolygonBtn.textContent = '✅';
+                    this.polygonForm.close();
+                    this.needsRedraw = true;
+                    this.render();
+                });
+            }
+
             setupEvents() {
                 const zoomInBtn = document.getElementById('zoom-in');
                 const zoomOutBtn = document.getElementById('zoom-out');
@@ -391,10 +545,28 @@
                 });
 
                 this.container.addEventListener('mousedown', (e) => {
-                    this.dragging = true;
-                    this.startX = e.clientX;
-                    this.startY = e.clientY;
-                    this.container.style.cursor = 'grabbing';
+                    if (e.button === 2 && this.isDrawing) {
+                        e.preventDefault();
+                        const rect = this.canvas.getBoundingClientRect();
+                        const mouseX = e.clientX - rect.left;
+                        const mouseY = e.clientY - rect.top;
+                        const worldX = Math.round((mouseX - this.posX) / this.zoom);
+                        const worldZ = Math.round((mouseY - this.posY) / this.zoom);
+                        this.tempPolygon.points.push([worldX, worldZ]);
+                        this.needsRedraw = true;
+                        this.render();
+                    } else if (e.button === 0) {
+                        this.dragging = true;
+                        this.startX = e.clientX;
+                        this.startY = e.clientY;
+                        this.container.style.cursor = 'grabbing';
+                    }
+                });
+
+                this.container.addEventListener('contextmenu', (e) => {
+                    if (this.isDrawing) {
+                        e.preventDefault();
+                    }
                 });
 
                 document.addEventListener('mousemove', (e) => {
@@ -550,6 +722,28 @@
                                 this.ctx.fillText(name, centerX, centerZ);
                             }
                         }
+                    });
+                }
+
+                if (this.isDrawing && this.tempPolygon.points.length > 0) {
+                    this.ctx.beginPath();
+                    this.tempPolygon.points.forEach((p, i) => {
+                        const [x, z] = p;
+                        if (i === 0) {
+                            this.ctx.moveTo(x, z);
+                        } else {
+                            this.ctx.lineTo(x, z);
+                        }
+                    });
+                    this.ctx.strokeStyle = 'red';
+                    this.ctx.lineWidth = 2 / this.zoom;
+                    this.ctx.stroke();
+
+                    this.tempPolygon.points.forEach(([x, z]) => {
+                        this.ctx.beginPath();
+                        this.ctx.arc(x, z, 3 / this.zoom, 0, 2 * Math.PI);
+                        this.ctx.fillStyle = 'red';
+                        this.ctx.fill();
                     });
                 }
 
