@@ -315,7 +315,6 @@
                     const dx = x2 - x1;
                     const dz = z2 - z1;
                     let angle = Math.atan2(dz, dx);
-                    // Adjust angle to keep text readable (within -90° to 90°)
                     if (angle > Math.PI / 2) {
                         angle -= Math.PI;
                     } else if (angle < -Math.PI / 2) {
@@ -841,12 +840,24 @@
                                     this.ctx.save();
                                     this.ctx.translate(centerX, centerZ);
                                     this.ctx.rotate(angle);
+                                    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+                                    this.ctx.shadowBlur = 4 / this.zoom;
+                                    this.ctx.shadowOffsetX = 2 / this.zoom;
+                                    this.ctx.shadowOffsetY = 2 / this.zoom;
                                     this.ctx.strokeText(name, 0, 0);
                                     this.ctx.fillText(name, 0, 0);
+                                    this.ctx.shadowColor = 'transparent';
+                                    this.ctx.shadowBlur = 0;
                                     this.ctx.restore();
                                 } else {
+                                    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+                                    this.ctx.shadowBlur = 4 / this.zoom;
+                                    this.ctx.shadowOffsetX = 2 / this.zoom;
+                                    this.ctx.shadowOffsetY = 2 / this.zoom;
                                     this.ctx.strokeText(name, centerX, centerZ);
                                     this.ctx.fillText(name, centerX, centerZ);
+                                    this.ctx.shadowColor = 'transparent';
+                                    this.ctx.shadowBlur = 0;
                                 }
                             }
                         }
