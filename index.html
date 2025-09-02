@@ -2,8 +2,9 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>Mapa Craftly</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
     <script src="pozycje.js"></script>
     <style>
         body, html {
@@ -244,6 +245,8 @@
         const tiles = ['0,0', '0,-0', '-0,0', '-0,-0'];
         const minZoom = 0.1;
         const maxZoom = 50;
+        const touchHoldThreshold = 200; // Czas przytrzymania w ms dla przesuwania
+        const doubleTapThreshold = 300; // Czas na podwójne dotknięcie w ms
 
         function parseCoord(str, isWebP = false) {
             const size = isWebP ? WEBP_SIZE : PNG_SIZE;
@@ -366,6 +369,8 @@
                 this.touchStartTime = 0;
                 this.isTouchHold = false;
                 this.initialPinchDistance = null;
+                this.initialZoom = this.zoom;
+                this.lastTouchTime = 0;
                 this.needsRedraw = true;
                 this.lastPosX = 0;
                 this.lastPosY = 0;
@@ -605,6 +610,21 @@
                 });
             }
 
+            getTouchDistance(touches) {
+                if (touches.length < 2) return null;
+                const dx = touches[0].clientX - touches[1].clientX;
+                const dy = touches[0].clientY - touches[1].clientY;
+                return Math.sqrt(dx * dx + dy * dy);
+            }
+
+            getTouchCenter(touches) {
+                if (touches.length < 2) return null;
+                return {
+                    x: (touches[0].clientX + touches[1].clientX) / 2,
+                    y: (touches[0].clientY + touches[1].clientY) / 2
+                };
+            }
+
             setupEvents() {
                 const zoomInBtn = document.getElementById('zoom-in');
                 const zoomOutBtn = document.getElementById('zoom-out');
@@ -612,22 +632,22 @@
                 document.addEventListener('keydown', (e) => {
                     if (e.key === 'Control') {
                         this.ctrlPressed = true;
-                        console.log('Ctrl pressed:', this.ctrlPressed);
                     }
                 });
                 document.addEventListener('keyup', (e) => {
                     if (e.key === 'Control') {
                         this.ctrlPressed = false;
-                        console.log('Ctrl released:', this.ctrlPressed);
                     }
                 });
 
-                zoomInBtn.addEventListener('click', () => {
+                zoomInBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
                     const delta = this.ctrlPressed ? 1 : 0.1;
                     this.setZoom(this.zoom + delta);
                 });
 
-                zoomOutBtn.addEventListener('click', () => {
+                zoomOutBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
                     const delta = this.ctrlPressed ? 1 : 0.1;
                     this.setZoom(this.zoom - delta);
                 });
@@ -715,28 +735,35 @@
                     const rect = this.canvas.getBoundingClientRect();
                     if (e.touches.length === 1) {
                         this.touchStartTime = Date.now();
-                        this.isTouchHold = false;
                         this.startX = e.touches[0].clientX;
                         this.startY = e.touches[0].clientY;
-                    } else if (e.touches.length === 2) {
+                        this.isTouchHold = false;
                         this.dragging = false;
+                    } else if (e.touches.length === 2) {
                         this.initialPinchDistance = this.getTouchDistance(e.touches);
                         const center = this.getTouchCenter(e.touches);
                         this.startX = center.x;
                         this.startY = center.y;
+                        this.initialZoom = this.zoom;
                     }
                 });
 
                 this.container.addEventListener('touchmove', (e) => {
                     e.preventDefault();
                     const rect = this.canvas.getBoundingClientRect();
-                    if (e.touches.length === 1 && this.dragging && this.isTouchHold) {
-                        this.posX += e.touches[0].clientX - this.startX;
-                        this.posY += e.touches[0].clientY - this.startY;
-                        this.startX = e.touches[0].clientX;
-                        this.startY = e.touches[0].clientY;
-                        this.clampPosition();
-                        this.needsRedraw = true;
+                    if (e.touches.length === 1) {
+                        if (Date.now() - this.touchStartTime >= touchHoldThreshold && !this.isTouchHold) {
+                            this.isTouchHold = true;
+                            this.dragging = true;
+                        }
+                        if (this.dragging && this.isTouchHold) {
+                            this.posX += e.touches[0].clientX - this.startX;
+                            this.posY += e.touches[0].clientY - this.startY;
+                            this.startX = e.touches[0].clientX;
+                            this.startY = e.touches[0].clientY;
+                            this.clampPosition();
+                            this.needsRedraw = true;
+                        }
                     } else if (e.touches.length === 2) {
                         const currentDistance = this.getTouchDistance(e.touches);
                         if (this.initialPinchDistance && currentDistance) {
@@ -744,10 +771,9 @@
                             const center = this.getTouchCenter(e.touches);
                             const centerX = center.x - rect.left;
                             const centerY = center.y - rect.top;
-                            this.setZoom(this.zoom * scale, centerX, centerY);
-                            this.initialPinchDistance = currentDistance;
-                            this.startX = center.x;
-                            this.startY = center.y;
+                            this.setZoom(this.initialZoom * scale, centerX, centerY);
+                            this.needsRedraw = true;
+                            this.render();
                         }
                     }
                     const mouseX = e.touches[0]?.clientX - rect.left || 0;
@@ -766,11 +792,34 @@
                         const worldX = Math.round((touchX - this.posX) / this.zoom);
                         const worldZ = Math.round((touchY - this.posY) / this.zoom);
 
-                        // Pojedyncze dotknięcie dodaje punkt
+                        // Dodanie punktu
                         this.tempPolygon.points.push([worldX, worldZ]);
                         this.needsRedraw = true;
                         this.render();
+                    } else if (e.changedTouches.length === 1 && this.isDrawing && this.lastTouchTime && Date.now() - this.lastTouchTime < doubleTapThreshold) {
+                        const touchX = e.changedTouches[0].clientX - rect.left;
+                        const touchY = e.changedTouches[0].clientY - rect.top;
+                        const worldX = Math.round((touchX - this.posX) / this.zoom);
+                        const worldZ = Math.round((touchY - this.posY) / this.zoom);
+                        let pointRemoved = false;
+                        const clickRadius = 5 / this.zoom;
+                        this.tempPolygon.points = this.tempPolygon.points.filter(([x, z]) => {
+                            const dx = worldX - x;
+                            const dz = worldZ - z;
+                            const distance = Math.sqrt(dx * dx + dz * dz);
+                            if (distance < clickRadius) {
+                                pointRemoved = true;
+                                return false;
+                            }
+                            return true;
+                        });
+
+                        if (pointRemoved) {
+                            this.needsRedraw = true;
+                            this.render();
+                        }
                     }
+                    this.lastTouchTime = Date.now();
                     this.dragging = false;
                     this.isTouchHold = false;
                     this.initialPinchDistance = null;
@@ -967,4 +1016,4 @@
     </script>
 </body>
 </html>
-<!-- Wersja: v1.2 -->
+<!-- Wersja: v1.3 -->
