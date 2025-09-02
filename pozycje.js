@@ -274,7 +274,7 @@ const polygons = [
     fillColor: 'rgba(99, 99, 99, 0.2)',
     closePath: true,
     name: '.',
-    category: 1
+    category: 2
 },
 //Linia koloejwa 1
 {
