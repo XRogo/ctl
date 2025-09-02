@@ -2,7 +2,7 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Mapa Craftly</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <script src="pozycje.js"></script>
@@ -13,6 +13,7 @@
             overflow: hidden;
             height: 100%;
             background-color: #000;
+            touch-action: none; /* Wyłącza domyślne gesty przeglądarki */
         }
         #map-container {
             position: relative;
@@ -245,6 +246,7 @@
         const tiles = ['0,0', '0,-0', '-0,0', '-0,-0'];
         const minZoom = 0.1;
         const maxZoom = 50;
+        const touchThreshold = 200; // Czas w ms dla krótkiego dotknięcia (dodanie punktu)
 
         function parseCoord(str, isWebP = false) {
             const size = isWebP ? WEBP_SIZE : PNG_SIZE;
@@ -365,10 +367,8 @@
                 this.startX = 0;
                 this.startY = 0;
                 this.touchStartTime = 0;
-                this.isTouchHold = false;
                 this.initialPinchDistance = null;
                 this.initialZoom = this.zoom;
-                this.lastTouchTime = 0;
                 this.needsRedraw = true;
                 this.lastPosX = 0;
                 this.lastPosY = 0;
@@ -616,7 +616,12 @@
             }
 
             getTouchCenter(touches) {
-                if (touches.length < 2) return null;
+                if (touches.length < 2) {
+                    return {
+                        x: touches[0].clientX,
+                        y: touches[0].clientY
+                    };
+                }
                 return {
                     x: (touches[0].clientX + touches[1].clientX) / 2,
                     y: (touches[0].clientY + touches[1].clientY) / 2
@@ -630,24 +635,20 @@
                 document.addEventListener('keydown', (e) => {
                     if (e.key === 'Control') {
                         this.ctrlPressed = true;
-                        console.log('Ctrl pressed:', this.ctrlPressed);
                     }
                 });
                 document.addEventListener('keyup', (e) => {
                     if (e.key === 'Control') {
                         this.ctrlPressed = false;
-                        console.log('Ctrl released:', this.ctrlPressed);
                     }
                 });
 
                 zoomInBtn.addEventListener('click', () => {
-                    const delta = this.ctrlPressed ? 1 : 0.1;
-                    this.setZoom(this.zoom + delta);
+                    this.setZoom(this.zoom + (this.ctrlPressed ? 1 : 0.1));
                 });
 
                 zoomOutBtn.addEventListener('click', () => {
-                    const delta = this.ctrlPressed ? 1 : 0.1;
-                    this.setZoom(this.zoom - delta);
+                    this.setZoom(this.zoom - (this.ctrlPressed ? 1 : 0.1));
                 });
 
                 this.container.addEventListener('wheel', (e) => {
@@ -708,8 +709,8 @@
                 document.addEventListener('mousemove', (e) => {
                     if (this.dragging) {
                         this.posX += e.clientX - this.startX;
-                        this.startX = e.clientX;
                         this.posY += e.clientY - this.startY;
+                        this.startX = e.clientX;
                         this.startY = e.clientY;
                         this.clampPosition();
                         this.needsRedraw = true;
@@ -735,10 +736,11 @@
                         this.touchStartTime = Date.now();
                         this.startX = e.touches[0].clientX;
                         this.startY = e.touches[0].clientY;
-                        this.isTouchHold = false;
                         this.dragging = false;
                     } else if (e.touches.length === 2) {
+                        this.dragging = false;
                         this.initialPinchDistance = this.getTouchDistance(e.touches);
+                        this.initialZoom = this.zoom;
                         const center = this.getTouchCenter(e.touches);
                         this.startX = center.x;
                         this.startY = center.y;
@@ -749,13 +751,18 @@
                     e.preventDefault();
                     const rect = this.canvas.getBoundingClientRect();
                     if (e.touches.length === 1) {
-                        if (this.dragging) {
-                            this.posX += e.touches[0].clientX - this.startX;
-                            this.posY += e.touches[0].clientY - this.startY;
+                        const touchDuration = Date.now() - this.touchStartTime;
+                        if (touchDuration > touchThreshold) {
+                            this.dragging = true;
+                            const deltaX = e.touches[0].clientX - this.startX;
+                            const deltaY = e.touches[0].clientY - this.startY;
+                            this.posX += deltaX;
+                            this.posY += deltaY;
                             this.startX = e.touches[0].clientX;
                             this.startY = e.touches[0].clientY;
                             this.clampPosition();
                             this.needsRedraw = true;
+                            this.render();
                         }
                     } else if (e.touches.length === 2) {
                         const currentDistance = this.getTouchDistance(e.touches);
@@ -764,7 +771,8 @@
                             const center = this.getTouchCenter(e.touches);
                             const centerX = center.x - rect.left;
                             const centerY = center.y - rect.top;
-                            this.setZoom(this.zoom * scale, centerX, centerY);
+                            this.setZoom(this.initialZoom * scale, centerX, centerY);
+                            this.initialPinchDistance = currentDistance;
                             this.needsRedraw = true;
                             this.render();
                         }
@@ -779,54 +787,33 @@
                 this.container.addEventListener('touchend', (e) => {
                     e.preventDefault();
                     const rect = this.canvas.getBoundingClientRect();
-                    if (e.changedTouches.length === 1 && !this.dragging && this.isDrawing) {
+                    const touchDuration = Date.now() - this.touchStartTime;
+                    if (e.changedTouches.length === 1 && touchDuration < touchThreshold && this.isDrawing) {
                         const touchX = e.changedTouches[0].clientX - rect.left;
                         const touchY = e.changedTouches[0].clientY - rect.top;
                         const worldX = Math.round((touchX - this.posX) / this.zoom);
                         const worldZ = Math.round((touchY - this.posY) / this.zoom);
-
-                        // Dodanie punktu
                         this.tempPolygon.points.push([worldX, worldZ]);
                         this.needsRedraw = true;
                         this.render();
-                    } else if (e.changedTouches.length === 1 && this.isDrawing && this.lastTouchTime && Date.now() - this.lastTouchTime < doubleTapThreshold) {
-                        const touchX = e.changedTouches[0].clientX - rect.left;
-                        const touchY = e.changedTouches[0].clientY - rect.top;
-                        const worldX = Math.round((touchX - this.posX) / this.zoom);
-                        const worldZ = Math.round((touchY - this.posY) / this.zoom);
-                        let pointRemoved = false;
-                        const clickRadius = 5 / this.zoom;
-                        this.tempPolygon.points = this.tempPolygon.points.filter(([x, z]) => {
-                            const dx = worldX - x;
-                            const dz = worldZ - z;
-                            const distance = Math.sqrt(dx * dx + dz * dz);
-                            if (distance < clickRadius) {
-                                pointRemoved = true;
-                                return false;
-                            }
-                            return true;
-                        });
-
-                        if (pointRemoved) {
-                            this.needsRedraw = true;
-                            this.render();
-                        }
                     }
-                    this.lastTouchTime = Date.now();
                     this.dragging = false;
-                    this.isTouchHold = false;
                     this.initialPinchDistance = null;
                     this.container.style.cursor = 'grab';
                 });
             }
 
             setZoom(newZoom, centerX = this.canvas.width / 2, centerY = this.canvas.height / 2) {
+                const prevZoom = this.zoom;
                 newZoom = Math.max(minZoom, Math.min(maxZoom, newZoom));
-                const worldX = (centerX - this.posX) / this.zoom;
-                const worldY = (centerY - this.posY) / this.zoom;
+                if (newZoom === this.zoom) return;
+
+                // Centrowanie zoomowania na pozycji kursora/dotyku
+                const worldX = (centerX - this.posX) / prevZoom;
+                const worldY = (centerY - this.posY) / prevZoom;
                 this.zoom = newZoom;
-                this.posX = centerX - worldX * this.zoom;
-                this.posY = centerY - worldY * this.zoom;
+                this.posX = centerX - worldX * newZoom;
+                this.posY = centerY - worldY * newZoom;
                 this.clampPosition();
                 this.needsRedraw = true;
                 this.zoomDisplay.textContent = `Zoom: ${this.zoom.toFixed(1)}x`;
@@ -1007,6 +994,6 @@
 
         const tileMap = new TileMap(document.getElementById('map-container'));
     </script>
-    <!-- Wersja: v1.2 -->
 </body>
 </html>
+<!-- Wersja: v1.3 -->
