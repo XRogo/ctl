@@ -13,7 +13,7 @@
             overflow: hidden;
             height: 100%;
             background-color: #000;
-            touch-action: none; /* Wyłącza domyślne gesty przeglądarki */
+            touch-action: none;
         }
         #map-container {
             position: relative;
@@ -369,6 +369,7 @@
                 this.touchStartTime = 0;
                 this.initialPinchDistance = null;
                 this.initialZoom = this.zoom;
+                this.lastTouchTime = 0;
                 this.needsRedraw = true;
                 this.lastPosX = 0;
                 this.lastPosY = 0;
@@ -460,18 +461,7 @@
                         }
                     });
                     this.updateCategoryControls();
-
-                    if (this.polygons.length > 0 && this.polygons[0].points.length > 0) {
-                        const [centerX, centerZ] = calculateCentroid(this.polygons[0].points);
-                        this.posX = this.canvas.width / 2 - centerX * this.zoom;
-                        this.posY = this.canvas.height / 2 - centerZ * this.zoom;
-                        this.lastPosX = this.posX;
-                        this.lastPosY = this.posY;
-                        this.coordDisplay.textContent = `X: ${Math.round(centerX)}, Z: ${Math.round(centerZ)}`;
-                    } else {
-                        this.centerOnStyk();
-                    }
-
+                    this.centerOnOrigin();
                     this.needsRedraw = true;
                     this.render();
                 } catch (e) {
@@ -479,7 +469,7 @@
                     this.polygons = [];
                     this.visibleCategories = { '1': true, '2': true, '3': true };
                     this.updateCategoryControls();
-                    this.centerOnStyk();
+                    this.centerOnOrigin();
                     this.errorMessage.textContent = 'Nie udało się załadować danych poligonów z pozycje.js';
                     this.errorMessage.style.display = 'block';
                     this.needsRedraw = true;
@@ -535,10 +525,11 @@
                 this.canvas.style.height = window.innerHeight + 'px';
                 this.ctx.imageSmoothingEnabled = false;
                 this.ctx.imageSmoothingQuality = 'low';
+                this.centerOnOrigin();
                 this.needsRedraw = true;
             }
 
-            centerOnStyk() {
+            centerOnOrigin() {
                 this.posX = this.canvas.width / 2;
                 this.posY = this.canvas.height / 2;
                 this.lastPosX = this.posX;
@@ -728,7 +719,6 @@
                     this.container.style.cursor = 'grab';
                 });
 
-                // Obsługa zdarzeń dotykowych
                 this.container.addEventListener('touchstart', (e) => {
                     e.preventDefault();
                     const rect = this.canvas.getBoundingClientRect();
@@ -751,19 +741,20 @@
                     e.preventDefault();
                     const rect = this.canvas.getBoundingClientRect();
                     if (e.touches.length === 1) {
-                        const touchDuration = Date.now() - this.touchStartTime;
-                        if (touchDuration > touchThreshold) {
-                            this.dragging = true;
-                            const deltaX = e.touches[0].clientX - this.startX;
-                            const deltaY = e.touches[0].clientY - this.startY;
-                            this.posX += deltaX;
-                            this.posY += deltaY;
-                            this.startX = e.touches[0].clientX;
-                            this.startY = e.touches[0].clientY;
-                            this.clampPosition();
-                            this.needsRedraw = true;
-                            this.render();
-                        }
+                        const deltaX = e.touches[0].clientX - this.startX;
+                        const deltaY = e.touches[0].clientY - this.startY;
+                        this.posX += deltaX;
+                        this.posY += deltaY;
+                        this.startX = e.touches[0].clientX;
+                        this.startY = e.touches[0].clientY;
+                        this.dragging = true;
+                        this.clampPosition();
+                        this.needsRedraw = true;
+                        const mouseX = e.touches[0].clientX - rect.left;
+                        const mouseY = e.touches[0].clientY - rect.top;
+                        const worldX = Math.round((mouseX - this.posX) / this.zoom);
+                        const worldZ = Math.round((mouseY - this.posY) / this.zoom);
+                        this.coordDisplay.textContent = `X: ${worldX}, Z: ${worldZ}`;
                     } else if (e.touches.length === 2) {
                         const currentDistance = this.getTouchDistance(e.touches);
                         if (this.initialPinchDistance && currentDistance) {
@@ -774,14 +765,9 @@
                             this.setZoom(this.initialZoom * scale, centerX, centerY);
                             this.initialPinchDistance = currentDistance;
                             this.needsRedraw = true;
-                            this.render();
                         }
                     }
-                    const mouseX = e.touches[0]?.clientX - rect.left || 0;
-                    const mouseY = e.touches[0]?.clientY - rect.top || 0;
-                    const worldX = Math.round((mouseX - this.posX) / this.zoom);
-                    const worldZ = Math.round((mouseY - this.posY) / this.zoom);
-                    this.coordDisplay.textContent = `X: ${worldX}, Z: ${worldZ}`;
+                    this.render();
                 });
 
                 this.container.addEventListener('touchend', (e) => {
@@ -796,7 +782,29 @@
                         this.tempPolygon.points.push([worldX, worldZ]);
                         this.needsRedraw = true;
                         this.render();
+                    } else if (e.changedTouches.length === 1 && this.isDrawing && this.lastTouchTime && Date.now() - this.lastTouchTime < 300) {
+                        const touchX = e.changedTouches[0].clientX - rect.left;
+                        const touchY = e.changedTouches[0].clientY - rect.top;
+                        const worldX = Math.round((touchX - this.posX) / this.zoom);
+                        const worldZ = Math.round((touchY - this.posY) / this.zoom);
+                        let pointRemoved = false;
+                        const clickRadius = 5 / this.zoom;
+                        this.tempPolygon.points = this.tempPolygon.points.filter(([x, z]) => {
+                            const dx = worldX - x;
+                            const dz = worldZ - z;
+                            const distance = Math.sqrt(dx * dx + dz * dz);
+                            if (distance < clickRadius) {
+                                pointRemoved = true;
+                                return false;
+                            }
+                            return true;
+                        });
+                        if (pointRemoved) {
+                            this.needsRedraw = true;
+                            this.render();
+                        }
                     }
+                    this.lastTouchTime = Date.now();
                     this.dragging = false;
                     this.initialPinchDistance = null;
                     this.container.style.cursor = 'grab';
@@ -808,7 +816,6 @@
                 newZoom = Math.max(minZoom, Math.min(maxZoom, newZoom));
                 if (newZoom === this.zoom) return;
 
-                // Centrowanie zoomowania na pozycji kursora/dotyku
                 const worldX = (centerX - this.posX) / prevZoom;
                 const worldY = (centerY - this.posY) / prevZoom;
                 this.zoom = newZoom;
@@ -996,4 +1003,4 @@
     </script>
 </body>
 </html>
-<!-- Wersja: v1.3 -->
+<!-- Wersja: v1.4 -->
