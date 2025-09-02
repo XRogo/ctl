@@ -2,7 +2,7 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mapa Craftly</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <script src="pozycje.js"></script>
@@ -245,8 +245,6 @@
         const tiles = ['0,0', '0,-0', '-0,0', '-0,-0'];
         const minZoom = 0.1;
         const maxZoom = 50;
-        const touchHoldThreshold = 200; // Czas przytrzymania w ms dla przesuwania
-        const doubleTapThreshold = 300; // Czas na podwójne dotknięcie w ms
 
         function parseCoord(str, isWebP = false) {
             const size = isWebP ? WEBP_SIZE : PNG_SIZE;
@@ -632,22 +630,22 @@
                 document.addEventListener('keydown', (e) => {
                     if (e.key === 'Control') {
                         this.ctrlPressed = true;
+                        console.log('Ctrl pressed:', this.ctrlPressed);
                     }
                 });
                 document.addEventListener('keyup', (e) => {
                     if (e.key === 'Control') {
                         this.ctrlPressed = false;
+                        console.log('Ctrl released:', this.ctrlPressed);
                     }
                 });
 
-                zoomInBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
+                zoomInBtn.addEventListener('click', () => {
                     const delta = this.ctrlPressed ? 1 : 0.1;
                     this.setZoom(this.zoom + delta);
                 });
 
-                zoomOutBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
+                zoomOutBtn.addEventListener('click', () => {
                     const delta = this.ctrlPressed ? 1 : 0.1;
                     this.setZoom(this.zoom - delta);
                 });
@@ -744,7 +742,6 @@
                         const center = this.getTouchCenter(e.touches);
                         this.startX = center.x;
                         this.startY = center.y;
-                        this.initialZoom = this.zoom;
                     }
                 });
 
@@ -752,11 +749,7 @@
                     e.preventDefault();
                     const rect = this.canvas.getBoundingClientRect();
                     if (e.touches.length === 1) {
-                        if (Date.now() - this.touchStartTime >= touchHoldThreshold && !this.isTouchHold) {
-                            this.isTouchHold = true;
-                            this.dragging = true;
-                        }
-                        if (this.dragging && this.isTouchHold) {
+                        if (this.dragging) {
                             this.posX += e.touches[0].clientX - this.startX;
                             this.posY += e.touches[0].clientY - this.startY;
                             this.startX = e.touches[0].clientX;
@@ -771,7 +764,7 @@
                             const center = this.getTouchCenter(e.touches);
                             const centerX = center.x - rect.left;
                             const centerY = center.y - rect.top;
-                            this.setZoom(this.initialZoom * scale, centerX, centerY);
+                            this.setZoom(this.zoom * scale, centerX, centerY);
                             this.needsRedraw = true;
                             this.render();
                         }
@@ -786,7 +779,7 @@
                 this.container.addEventListener('touchend', (e) => {
                     e.preventDefault();
                     const rect = this.canvas.getBoundingClientRect();
-                    if (e.changedTouches.length === 1 && !this.isTouchHold && !this.dragging && this.isDrawing) {
+                    if (e.changedTouches.length === 1 && !this.dragging && this.isDrawing) {
                         const touchX = e.changedTouches[0].clientX - rect.left;
                         const touchY = e.changedTouches[0].clientY - rect.top;
                         const worldX = Math.round((touchX - this.posX) / this.zoom);
@@ -1014,6 +1007,6 @@
 
         const tileMap = new TileMap(document.getElementById('map-container'));
     </script>
+    <!-- Wersja: v1.2 -->
 </body>
 </html>
-<!-- Wersja: v1.3 -->
