@@ -2,9 +2,8 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mapa Craftly</title>
-    <link rel="icon" type="image/x-icon" href="favicon.ico">
     <script src="pozycje.js"></script>
     <style>
         body, html {
@@ -13,7 +12,6 @@
             overflow: hidden;
             height: 100%;
             background-color: #000;
-            touch-action: none; /* Zapobiega domyślnemu zoomowaniu przeglądarki */
         }
         #map-container {
             position: relative;
@@ -246,7 +244,6 @@
         const tiles = ['0,0', '0,-0', '-0,0', '-0,-0'];
         const minZoom = 0.1;
         const maxZoom = 50;
-        const touchHoldThreshold = 200; // Czas przytrzymania w ms dla przesuwania
 
         function parseCoord(str, isWebP = false) {
             const size = isWebP ? WEBP_SIZE : PNG_SIZE;
@@ -536,8 +533,6 @@
                 this.ctx.imageSmoothingEnabled = false;
                 this.ctx.imageSmoothingQuality = 'low';
                 this.needsRedraw = true;
-                // Po zmianie rozmiaru centrowanie na pierwszym poligonie lub (0,0)
-                this.loadPositions();
             }
 
             centerOnStyk() {
@@ -610,21 +605,6 @@
                 });
             }
 
-            getTouchDistance(touches) {
-                if (touches.length < 2) return null;
-                const dx = touches[0].clientX - touches[1].clientX;
-                const dy = touches[0].clientY - touches[1].clientY;
-                return Math.sqrt(dx * dx + dy * dy);
-            }
-
-            getTouchCenter(touches) {
-                if (touches.length < 2) return null;
-                return {
-                    x: (touches[0].clientX + touches[1].clientX) / 2,
-                    y: (touches[0].clientY + touches[1].clientY) / 2
-                };
-            }
-
             setupEvents() {
                 const zoomInBtn = document.getElementById('zoom-in');
                 const zoomOutBtn = document.getElementById('zoom-out');
@@ -632,11 +612,13 @@
                 document.addEventListener('keydown', (e) => {
                     if (e.key === 'Control') {
                         this.ctrlPressed = true;
+                        console.log('Ctrl pressed:', this.ctrlPressed);
                     }
                 });
                 document.addEventListener('keyup', (e) => {
                     if (e.key === 'Control') {
                         this.ctrlPressed = false;
+                        console.log('Ctrl released:', this.ctrlPressed);
                     }
                 });
 
@@ -736,14 +718,6 @@
                         this.isTouchHold = false;
                         this.startX = e.touches[0].clientX;
                         this.startY = e.touches[0].clientY;
-                        // Opóźnienie do wykrycia przytrzymania
-                        setTimeout(() => {
-                            if (Date.now() - this.touchStartTime >= touchHoldThreshold && !this.dragging) {
-                                this.isTouchHold = true;
-                                this.dragging = true;
-                                this.container.style.cursor = 'grabbing';
-                            }
-                        }, touchHoldThreshold);
                     } else if (e.touches.length === 2) {
                         this.dragging = false;
                         this.initialPinchDistance = this.getTouchDistance(e.touches);
@@ -792,34 +766,10 @@
                         const worldX = Math.round((touchX - this.posX) / this.zoom);
                         const worldZ = Math.round((touchY - this.posY) / this.zoom);
 
-                        // Podwójne dotknięcie do usuwania punktu
-                        if (Date.now() - this.touchStartTime < 300) {
-                            let pointRemoved = false;
-                            const clickRadius = 5 / this.zoom;
-                            this.tempPolygon.points = this.tempPolygon.points.filter(([x, z]) => {
-                                const dx = worldX - x;
-                                const dz = worldZ - z;
-                                const distance = Math.sqrt(dx * dx + dz * dz);
-                                if (distance < clickRadius) {
-                                    pointRemoved = true;
-                                    return false;
-                                }
-                                return true;
-                            });
-
-                            if (pointRemoved) {
-                                this.needsRedraw = true;
-                                this.render();
-                                return;
-                            }
-                        }
-
                         // Pojedyncze dotknięcie dodaje punkt
-                        if (Date.now() - this.touchStartTime < touchHoldThreshold) {
-                            this.tempPolygon.points.push([worldX, worldZ]);
-                            this.needsRedraw = true;
-                            this.render();
-                        }
+                        this.tempPolygon.points.push([worldX, worldZ]);
+                        this.needsRedraw = true;
+                        this.render();
                     }
                     this.dragging = false;
                     this.isTouchHold = false;
@@ -1015,6 +965,6 @@
 
         const tileMap = new TileMap(document.getElementById('map-container'));
     </script>
-    <!-- Wersja: v1.1 -->
 </body>
 </html>
+<!-- Wersja: v1.2 -->
