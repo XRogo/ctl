@@ -72,7 +72,7 @@
         #category-controls button.active {
             background-color: #297008;
         }
-        #toggle-webp, #add-polygon {
+        #toggle-webp, #add-polygon, #undo-point {
             position: absolute;
             z-index: 10;
             padding: 10px;
@@ -90,7 +90,12 @@
             top: 10px;
             left: 10px;
         }
-        #toggle-webp:hover, #add-polygon:hover {
+        #undo-point {
+            top: 60px;
+            left: 10px;
+            display: none;
+        }
+        #toggle-webp:hover, #add-polygon:hover, #undo-point:hover {
             background-color: #666;
         }
         #zoom-display {
@@ -216,6 +221,7 @@
     </div>
     <button id="toggle-webp">🔒</button>
     <button id="add-polygon">+</button>
+    <button id="undo-point">↺</button>
     <div id="zoom-display">Zoom: 1.0x</div>
     <div id="coord-display">X: 0, Z: 0</div>
     <div id="error-message"></div>
@@ -385,6 +391,7 @@
                 this.polygonForm = document.getElementById('polygon-form');
                 this.polygonResult = document.getElementById('polygon-result');
                 this.addPolygonBtn = document.getElementById('add-polygon');
+                this.undoPointBtn = document.getElementById('undo-point');
                 this.colorInput = document.getElementById('polygon-color');
                 this.colorPreview = document.getElementById('color-preview');
 
@@ -553,6 +560,7 @@
                         }
                         this.isDrawing = false;
                         this.addPolygonBtn.textContent = '+';
+                        this.undoPointBtn.style.display = 'none';
                         const polygon = {
                             points: this.tempPolygon.points,
                             lineColor: this.tempPolygon.lineColor,
@@ -577,6 +585,14 @@
                     }
                 });
 
+                this.undoPointBtn.addEventListener('click', () => {
+                    if (this.isDrawing && this.tempPolygon.points.length > 0) {
+                        this.tempPolygon.points.pop();
+                        this.needsRedraw = true;
+                        this.render();
+                    }
+                });
+
                 this.polygonForm.addEventListener('submit', (e) => {
                     e.preventDefault();
                     const name = document.getElementById('polygon-name').value.trim();
@@ -593,6 +609,7 @@
                     this.tempPolygon.fillColor = `rgba(${r}, ${g}, ${b}, 0.2)`;
                     this.isDrawing = true;
                     this.addPolygonBtn.textContent = '✅';
+                    this.undoPointBtn.style.display = 'block';
                     this.polygonForm.close();
                     this.colorPreview.style.backgroundColor = '';
                     this.needsRedraw = true;
@@ -1015,4 +1032,4 @@
     </script>
 </body>
 </html>
-<!-- Wersja: v1.6 -->
+<!-- Wersja: v1.7 -->
