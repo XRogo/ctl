@@ -239,6 +239,15 @@ const polygons = [
     name: 'Morissek',
     category: 1
 },
+//dasikor
+{
+    points: [[255,434],[149,433],[82,499],[103,564],[170,613],[273,550],[256,439]],
+    lineColor: 'rgba(44, 140, 242, 1)',
+    fillColor: 'rgba(44, 140, 242, 0.2)',
+    closePath: true,
+    name: 'Podwodne miasto dasikora',
+    category: 1
+},
 //Ul. wiaduktowa
 {
     points: [[24,-49],[15,-47],[4,-47],[-6,-51],[-14,-56],[-25,-63],[-36,-73],[-42,-81],[-48,-92],[-50,-97],[-51,-103],[-51,-120],[-51,-123],[-41,-143]],
