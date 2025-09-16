@@ -252,7 +252,7 @@
         const tiles = ['0,0', '0,-0', '-0,0', '-0,-0'];
         const minZoom = 0.1;
         const maxZoom = 50;
-        const touchThreshold = 200; // Czas w ms dla krótkiego dotknięcia (dodanie punktu)
+        const touchThreshold = 200;
 
         function parseCoord(str, isWebP = false) {
             const size = isWebP ? WEBP_SIZE : PNG_SIZE;
@@ -394,6 +394,7 @@
                 this.undoPointBtn = document.getElementById('undo-point');
                 this.colorInput = document.getElementById('polygon-color');
                 this.colorPreview = document.getElementById('color-preview');
+                this.renderThrottleTimeout = null;
 
                 this.resizeCanvas();
                 window.addEventListener('resize', () => this.resizeCanvas());
@@ -461,7 +462,7 @@
                         throw new Error('Zmienna "polygons" nie jest zdefiniowana lub nie jest tablicą');
                     }
                     this.polygons = polygons;
-                    this.visibleCategories = { '1': true, '2': true, '3': true };
+                    this.visibleCategories = { '1': true, '2': true, '3': false };
                     this.polygons.forEach(polygon => {
                         if (polygon.category && this.visibleCategories[polygon.category] === undefined) {
                             this.visibleCategories[polygon.category] = true;
@@ -474,7 +475,7 @@
                 } catch (e) {
                     console.error('Błąd ładowania pozycje.js:', e.message);
                     this.polygons = [];
-                    this.visibleCategories = { '1': true, '2': true, '3': true };
+                    this.visibleCategories = { '1': true, '2': true, '3': false };
                     this.updateCategoryControls();
                     this.centerOnOrigin();
                     this.errorMessage.textContent = 'Nie udało się załadować danych poligonów z pozycje.js';
@@ -740,7 +741,7 @@
                 });
 
                 let lastTouchMoveTime = 0;
-                const touchMoveThrottle = 16; // Około 60 FPS (1000ms / 60 ≈ 16ms)
+                const touchMoveThrottle = 16;
 
                 this.container.addEventListener('touchstart', (e) => {
                     e.preventDefault();
@@ -892,58 +893,227 @@
                 return x < viewRight && x + width > viewLeft && y < viewBottom && y + height > viewTop;
             }
 
-            render() {
-                if (!this.needsRedraw && this.posX === this.lastPosX && this.posY === this.lastPosY && this.zoom === this.lastZoom) {
-                    requestAnimationFrame(() => this.render());
+            isPointInView(x, z) {
+                const viewWidth = window.innerWidth / this.zoom;
+                const viewHeight = window.innerHeight / this.zoom;
+                const viewLeft = -this.posX / this.zoom;
+                const viewRight = viewLeft + viewWidth;
+                const viewTop = -this.posY / this.zoom;
+                const viewBottom = viewTop + viewHeight;
+                return x >= viewLeft && x <= viewRight && z >= viewTop && z <= viewBottom;
+            }
+
+            isSegmentInView(x1, z1, x2, z2) {
+                const viewWidth = window.innerWidth / this.zoom;
+                const viewHeight = window.innerHeight / this.zoom;
+                const viewLeft = -this.posX / this.zoom;
+                const viewRight = viewLeft + viewWidth;
+                const viewTop = -this.posY / this.zoom;
+                const viewBottom = viewTop + viewHeight;
+
+                if ((x1 >= viewLeft && x1 <= viewRight && z1 >= viewTop && z1 <= viewBottom) ||
+                    (x2 >= viewLeft && x2 <= viewRight && z2 >= viewTop && z2 <= viewBottom)) {
+                    return true;
+                }
+
+                const minX = Math.min(x1, x2);
+                const maxX = Math.max(x1, x2);
+                const minZ = Math.min(z1, z2);
+                const maxZ = Math.max(z1, z2);
+                return minX <= viewRight && maxX >= viewLeft && minZ <= viewBottom && maxZ >= viewTop;
+            }
+
+            drawTextAlongPath(text, points, offset = 0) {
+                if (points.length < 2) {
+                    console.log(`Pominięto drawTextAlongPath: za mało punktów (${points.length})`);
                     return;
                 }
 
-                this.needsRedraw = false;
-                this.lastPosX = this.posX;
-                this.lastPosY = this.posY;
-                this.lastZoom = this.zoom;
+                let averageDx = 0;
+                for (let i = 0; i < points.length - 1; i++) {
+                    averageDx += points[i+1][0] - points[i][0];
+                }
+                averageDx /= (points.length - 1);
+                let reverseText = averageDx < 0;
+                if (reverseText) {
+                    text = text.split('').reverse().join('');
+                    console.log(`Odwrócono tekst na "${text}" z powodu kierunku drogi (averageDx=${averageDx})`);
+                }
 
-                const pixelRatio = window.devicePixelRatio || 1;
-                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-                this.ctx.save();
-                const pixelPerfectX = Math.round(this.posX * pixelRatio) / pixelRatio;
-                const pixelPerfectY = Math.round(this.posY * pixelRatio) / pixelRatio;
-                this.ctx.translate(pixelPerfectX * pixelRatio, pixelPerfectY * pixelRatio);
-                this.ctx.scale(this.zoom * pixelRatio, this.zoom * pixelRatio);
-                this.ctx.imageSmoothingEnabled = false;
-                this.ctx.imageSmoothingQuality = 'low';
+                const segments = [];
+                let totalLength = 0;
+                for (let i = 0; i < points.length - 1; i++) {
+                    const [x1, z1] = points[i];
+                    const [x2, z2] = points[i + 1];
+                    if (!this.isSegmentInView(x1, z1, x2, z2)) {
+                        console.log(`Segment ${i} pominięty: niewidoczny [(${x1}, ${z1}) -> (${x2}, ${z2})]`);
+                        continue;
+                    }
+                    const dx = x2 - x1;
+                    const dz = z2 - z1;
+                    const len = Math.sqrt(dx * dx + dz * dz);
+                    if (len < 1) {
+                        console.log(`Segment ${i} pominięty: za krótki (len=${len})`);
+                        continue;
+                    }
+                    let angle = Math.atan2(dz, dx);
+                    segments.push({ start: [x1, z1], len, angle, unitX: dx / len, unitZ: dz / len });
+                    totalLength += len;
+                }
 
-                if (this.loadWebPEnabled) {
+                if (segments.length === 0) {
+                    console.log(`Brak widocznych segmentów dla tekstu "${text}"`);
+                    return;
+                }
+                if (totalLength < 10) {
+                    console.log(`Droga za krótka dla tekstu "${text}" (totalLength=${totalLength})`);
+                    return;
+                }
+
+                console.log(`Rysowanie tekstu "${text}" na ${segments.length} segmentach, długość=${totalLength}`);
+
+                const letterSpacing = 12 / this.zoom;
+                const textWorldWidth = text.length * letterSpacing;
+                const spacing = 100; // Co 50 jednostek jedna nazwa
+                const maxLabels = Math.min(5, Math.floor(totalLength / spacing) + 1); // Maks 5 nazw
+
+                for (let i = 0; i < maxLabels; i++) {
+                    let currentOffset = (offset + i * spacing) % totalLength;
+                    let segIndex = 0;
+                    let segOffset = currentOffset;
+
+                    while (segIndex < segments.length && segOffset >= segments[segIndex].len) {
+                        segOffset -= segments[segIndex].len;
+                        segIndex++;
+                    }
+                    if (segIndex >= segments.length) {
+                        console.log(`Pominięto etykietę ${i}: brak segmentu (offset=${currentOffset})`);
+                        continue;
+                    }
+
+                    let remainingText = text;
+                    let textOffset = 0;
+
+                    while (remainingText.length > 0 && segIndex < segments.length) {
+                        const seg = segments[segIndex];
+                        const availableLength = seg.len - segOffset;
+
+                        if (availableLength < letterSpacing) {
+                            segOffset = 0;
+                            segIndex++;
+                            continue;
+                        }
+
+                        const letter = remainingText[0];
+                        const fraction = (segOffset + textOffset) / seg.len;
+                        const posX = seg.start[0] + fraction * seg.unitX * seg.len;
+                        const posZ = seg.start[1] + fraction * seg.unitZ * seg.len;
+
+                        let localAngle = seg.angle;
+                        if (localAngle > Math.PI / 2) {
+                            localAngle -= Math.PI;
+                        } else if (localAngle < -Math.PI / 2) {
+                            localAngle += Math.PI;
+                        }
+
+                        this.ctx.save();
+                        this.ctx.translate(posX, posZ);
+                        this.ctx.rotate(localAngle);
+                        this.ctx.font = `${14 / this.zoom}px Arial`;
+                        this.ctx.textAlign = 'center';
+                        this.ctx.textBaseline = 'middle';
+                        this.ctx.strokeStyle = 'black';
+                        this.ctx.lineWidth = 1.5 / this.zoom;
+                        this.ctx.strokeText(letter, 0, 0);
+                        this.ctx.fillStyle = 'white';
+                        this.ctx.fillText(letter, 0, 0);
+                        this.ctx.restore();
+
+                        console.log(`Narysowano literę "${letter}" na pozycji (${posX.toFixed(2)}, ${posZ.toFixed(2)}), segment=${segIndex}, offset=${(segOffset + textOffset).toFixed(2)}`);
+
+                        textOffset += letterSpacing;
+                        remainingText = remainingText.slice(1);
+
+                        if (textOffset >= seg.len - segOffset) {
+                            segOffset = 0;
+                            segIndex++;
+                            textOffset = 0;
+                        }
+                    }
+                }
+            }
+
+            render() {
+                if (this.renderThrottleTimeout) {
+                    clearTimeout(this.renderThrottleTimeout);
+                }
+
+                this.renderThrottleTimeout = setTimeout(() => {
+                    if (!this.needsRedraw && this.posX === this.lastPosX && this.posY === this.lastPosY && this.zoom === this.lastZoom) {
+                        requestAnimationFrame(() => this.render());
+                        return;
+                    }
+
+                    this.needsRedraw = false;
+                    this.lastPosX = this.posX;
+                    this.lastPosY = this.posY;
+                    this.lastZoom = this.zoom;
+
+                    const pixelRatio = window.devicePixelRatio || 1;
+                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                    this.ctx.save();
+                    const pixelPerfectX = Math.round(this.posX * pixelRatio) / pixelRatio;
+                    const pixelPerfectY = Math.round(this.posY * pixelRatio) / pixelRatio;
+                    this.ctx.translate(pixelPerfectX * pixelRatio, pixelPerfectY * pixelRatio);
+                    this.ctx.scale(this.zoom * pixelRatio, this.zoom * pixelRatio);
+                    this.ctx.imageSmoothingEnabled = false;
+                    this.ctx.imageSmoothingQuality = 'low';
+
+                    if (this.loadWebPEnabled) {
+                        tiles.forEach(key => {
+                            const [x, y] = key.split(',');
+                            const img = this.images.webp.get(key);
+                            const posX = parseCoord(x, true);
+                            const posY = parseCoord(y, true);
+                            if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, WEBP_SIZE, WEBP_SIZE)) {
+                                const pixelPerfectPosX = Math.round(posX * pixelRatio) / pixelRatio;
+                                const pixelPerfectPosY = Math.round(posY * pixelRatio) / pixelRatio;
+                                this.ctx.imageSmoothingEnabled = false;
+                                this.ctx.drawImage(img, pixelPerfectPosX, pixelPerfectPosY, WEBP_SIZE, WEBP_SIZE);
+                            }
+                        });
+                    }
+
                     tiles.forEach(key => {
                         const [x, y] = key.split(',');
-                        const img = this.images.webp.get(key);
-                        const posX = parseCoord(x, true);
-                        const posY = parseCoord(y, true);
-                        if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, WEBP_SIZE, WEBP_SIZE)) {
+                        const img = this.images.png.get(key);
+                        const posX = parseCoord(x, false);
+                        const posY = parseCoord(y, false);
+                        if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, PNG_SIZE, PNG_SIZE)) {
                             const pixelPerfectPosX = Math.round(posX * pixelRatio) / pixelRatio;
                             const pixelPerfectPosY = Math.round(posY * pixelRatio) / pixelRatio;
                             this.ctx.imageSmoothingEnabled = false;
-                            this.ctx.drawImage(img, pixelPerfectPosX, pixelPerfectPosY, WEBP_SIZE, WEBP_SIZE);
+                            this.ctx.drawImage(img, pixelPerfectPosX, pixelPerfectPosY, PNG_SIZE, PNG_SIZE);
                         }
                     });
-                }
 
-                tiles.forEach(key => {
-                    const [x, y] = key.split(',');
-                    const img = this.images.png.get(key);
-                    const posX = parseCoord(x, false);
-                    const posY = parseCoord(y, false);
-                    if (img && img.complete && img.naturalWidth > 0 && this.isVisible(posX, posY, PNG_SIZE, PNG_SIZE)) {
-                        const pixelPerfectPosX = Math.round(posX * pixelRatio) / pixelRatio;
-                        const pixelPerfectPosY = Math.round(posY * pixelRatio) / pixelRatio;
-                        this.ctx.imageSmoothingEnabled = false;
-                        this.ctx.drawImage(img, pixelPerfectPosX, pixelPerfectPosY, PNG_SIZE, PNG_SIZE);
-                    }
-                });
+                    if (this.polygons && this.polygons.length > 0) {
+                        this.polygons.forEach((polygon, index) => {
+                            if (!this.visibleCategories[polygon.category]) {
+                                console.log(`Pominięto poligon ${index}: kategoria ${polygon.category} niewidoczna`);
+                                return;
+                            }
+                            if (!polygon.points || polygon.points.length === 0) {
+                                console.log(`Pominięto poligon ${index}: brak punktów`);
+                                return;
+                            }
+                            if (polygon.category === 2 && this.zoom <= 3) {
+                                console.log(`Pominięto poligon ${index} (droga): zoom=${this.zoom} <= 3`);
+                                return;
+                            }
 
-                if (this.polygons && this.polygons.length > 0) {
-                    this.polygons.forEach((polygon, index) => {
-                        if (this.visibleCategories[polygon.category] && polygon.points && polygon.points.length > 0 && (polygon.category !== 2 || this.zoom >= 2.9)) {
+                            console.log(`Przetwarzanie poligonu ${index}: kategoria=${polygon.category}, nazwa="${polygon.name}", zoom=${this.zoom}`);
+
                             const { points, lineColor, fillColor, closePath, name, category } = polygon;
                             this.ctx.beginPath();
                             points.forEach((p, i) => {
@@ -963,68 +1133,58 @@
                             this.ctx.lineWidth = category === 1 ? 2 / this.zoom : (category === 2 ? 6 / this.zoom : 3 / this.zoom);
                             this.ctx.stroke();
 
-                            if (name && (category === 1 || this.zoom > 2)) {
-                                const [centerX, centerZ] = category === 1 ? calculateCentroid(points) : calculateLineMidpoint(points);
-                                this.ctx.font = `${12 / this.zoom}px Arial`;
-                                this.ctx.fillStyle = 'white';
-                                this.ctx.strokeStyle = 'black';
-                                this.ctx.lineWidth = 0.5 / this.zoom;
+                            if (name && (category === 1 || this.zoom > 3)) {
+                                this.ctx.font = `${14 / this.zoom}px Arial`;
                                 this.ctx.textAlign = 'center';
                                 this.ctx.textBaseline = 'middle';
-                                if (category !== 1) {
-                                    const angle = calculateLineAngle(points);
-                                    this.ctx.save();
-                                    this.ctx.translate(centerX, centerZ);
-                                    this.ctx.rotate(angle);
-                                    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-                                    this.ctx.shadowBlur = 4 / this.zoom;
-                                    this.ctx.shadowOffsetX = 2 / this.zoom;
-                                    this.ctx.shadowOffsetY = 2 / this.zoom;
-                                    this.ctx.strokeText(name, 0, 0);
-                                    this.ctx.fillText(name, 0, 0);
-                                    this.ctx.shadowColor = 'transparent';
-                                    this.ctx.shadowBlur = 0;
-                                    this.ctx.restore();
-                                } else {
-                                    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-                                    this.ctx.shadowBlur = 4 / this.zoom;
-                                    this.ctx.shadowOffsetX = 2 / this.zoom;
-                                    this.ctx.shadowOffsetY = 2 / this.zoom;
+                                if (category === 1) {
+                                    const [centerX, centerZ] = calculateCentroid(points);
+                                    this.ctx.strokeStyle = 'black';
+                                    this.ctx.lineWidth = 1.5 / this.zoom;
                                     this.ctx.strokeText(name, centerX, centerZ);
+                                    this.ctx.fillStyle = 'white';
                                     this.ctx.fillText(name, centerX, centerZ);
-                                    this.ctx.shadowColor = 'transparent';
-                                    this.ctx.shadowBlur = 0;
+                                    console.log(`Narysowano nazwę "${name}" dla poligonu ${index} (kategoria 1) na pozycji (${centerX}, ${centerZ})`);
+                                } else {
+                                    console.log(`Próba rysowania nazwy "${name}" dla poligonu ${index} (droga)`);
+                                    let totalLength = 0;
+                                    for (let i = 0; i < points.length - 1; i++) {
+                                        const [x1, z1] = points[i];
+                                        const [x2, z2] = points[i + 1];
+                                        totalLength += Math.sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2);
+                                    }
+                                    this.drawTextAlongPath(name, points, 0);
                                 }
                             }
-                        }
-                    });
-                }
+                        });
+                    }
 
-                if (this.isDrawing && this.tempPolygon.points.length > 0) {
-                    this.ctx.beginPath();
-                    this.tempPolygon.points.forEach((p, i) => {
-                        const [x, z] = p;
-                        if (i === 0) {
-                            this.ctx.moveTo(x, z);
-                        } else {
-                            this.ctx.lineTo(x, z);
-                        }
-                    });
-                    this.ctx.strokeStyle = 'red';
-                    this.ctx.lineWidth = 2 / this.zoom;
-                    this.ctx.stroke();
-
-                    this.tempPolygon.points.forEach(([x, z]) => {
+                    if (this.isDrawing && this.tempPolygon.points.length > 0) {
                         this.ctx.beginPath();
-                        this.ctx.arc(x, z, 3 / this.zoom, 0, 2 * Math.PI);
-                        this.ctx.fillStyle = 'red';
-                        this.ctx.fill();
-                    });
-                }
+                        this.tempPolygon.points.forEach((p, i) => {
+                            const [x, z] = p;
+                            if (i === 0) {
+                                this.ctx.moveTo(x, z);
+                            } else {
+                                this.ctx.lineTo(x, z);
+                            }
+                        });
+                        this.ctx.strokeStyle = 'red';
+                        this.ctx.lineWidth = 2 / this.zoom;
+                        this.ctx.stroke();
 
-                this.ctx.restore();
+                        this.tempPolygon.points.forEach(([x, z]) => {
+                            this.ctx.beginPath();
+                            this.ctx.arc(x, z, 3 / this.zoom, 0, 2 * Math.PI);
+                            this.ctx.fillStyle = 'red';
+                            this.ctx.fill();
+                        });
+                    }
 
-                requestAnimationFrame(() => this.render());
+                    this.ctx.restore();
+
+                    requestAnimationFrame(() => this.render());
+                }, 16);
             }
         }
 
@@ -1032,4 +1192,4 @@
     </script>
 </body>
 </html>
-<!-- Wersja: v1.7 -->
+<!-- Wersja: v1.14 -->
